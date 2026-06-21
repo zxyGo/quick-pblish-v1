@@ -75,7 +75,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 - [x] T019 [US1] 实现 `read_article` command（解析 front matter + 正文，返回 baseHash，FR-005）
 - [x] T020 [US1] 实现 `save_article` command（乐观哈希校验，冲突按 abort/overwrite/saveAs 处理，FR-005/FR-019）并在保存后刷新 SQLite 缓存
 - [x] T021 [US1] 实现 `import_asset` command 于 `src-tauri/src/commands/asset.rs`（复制图片进工作目录 `assets/`，去重命名，返回相对路径，FR-014a）
-- [~] T022 [P] [US1] `EditorPanel.vue` 已实现（props 正文/事件回传/样式预览，文件读写走后端）；**doocs/md 实际渲染管线接入待办**——当前用 markdown-it 占位，接缝已留（见组件注释与 research.md 第 1 节）
+- [x] T022 [P] [US1] `EditorPanel.vue` 已实现（props 正文/事件回传/样式预览，文件读写走后端）；**doocs/md 渲染管线已接入**——渲染核心 `@md/core`/`@md/shared` 以源码 vendored 于 `vendor/doocs-md/`（pnpm workspace 链接），用 `initRenderer`+`applyTheme`+`modifyHtmlContent` 实现样式预览，预览区 `id="output"` 与注入主题 CSS 作用域匹配（替换原 markdown-it 占位；mermaid/katex 等扩展随渲染核心打包并代码分割懒加载）
 - [x] T023 [US1] 编辑器视图：新建/打开/编辑/保存流程 + Dirty 状态 + 未保存提示（FR-007）于 `MainView.vue` 与 `stores/editor.ts`
 - [x] T024 [US1] 外部修改冲突弹窗（覆盖/放弃并重载/另存为）于 `MainView.vue`（FR-019）
 - [x] T025 [US1] 编辑器插入本地图片 → 调用 `import_asset` 并在光标处写入 Markdown 相对路径引用（FR-014a，EditorPanel 插图工具栏）

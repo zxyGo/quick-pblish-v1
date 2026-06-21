@@ -3,7 +3,7 @@ import pluginVue from "eslint-plugin-vue";
 
 export default [
   {
-    ignores: ["dist/**", "node_modules/**", "src-tauri/**", "src/bindings/**"],
+    ignores: ["dist/**", "node_modules/**", "src-tauri/**", "src/bindings/**", "vendor/**"],
   },
   js.configs.recommended,
   ...pluginVue.configs["flat/recommended"],

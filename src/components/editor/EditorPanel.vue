@@ -1,24 +1,64 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import MarkdownIt from "markdown-it";
+import { computed, onMounted, ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { MessagePlugin } from "tdesign-vue-next";
+import { applyTheme, initRenderer } from "@md/core";
+import { modifyHtmlContent } from "@md/core/utils";
+import { defaultStyleConfig } from "@md/shared/configs/style";
 import { api } from "@/bindings/commands";
 import { toAppError } from "@/services/error";
 
 /**
  * Markdown 编辑器 + 样式预览组件。
  *
- * doocs/md 集成接缝：当前实现使用轻量 markdown-it 渲染预览，作为可用的占位。
- * 后续 T022 将把 doocs/md 的编辑器与样式渲染管线接入此处（保持相同的 props/emit 契约：
- * 输入 `modelValue`(正文)，输出 `update:modelValue`），文件读写一律由后端负责。
+ * doocs/md 集成（T022 已接入）：右侧样式预览复用 doocs/md 的渲染管线——
+ * 渲染核心（@md/core / @md/shared）以源码形式 vendored 于 `vendor/doocs-md/`，
+ * 通过 pnpm workspace 链接。本组件用 `initRenderer` 构建渲染器、`applyTheme`
+ * 注入默认主题样式（作用域 #output），`modifyHtmlContent` 将正文渲染为带样式 HTML。
+ * 文件读写一律由 Tauri 后端负责，doocs/md 仅负责"编辑与预览"，不触碰文件系统。
+ * props/emit 契约保持不变：输入 `modelValue`(正文)，输出 `update:modelValue`。
  * 详见 specs/001-local-content-management/research.md 第 1 节。
  */
 const props = defineProps<{ modelValue: string }>();
 const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
-const rendered = computed(() => md.render(props.modelValue || ""));
+// 渲染器实例（doocs/md 渲染核心）。
+const renderer = initRenderer({
+  isMacCodeBlock: defaultStyleConfig.isMacCodeBlock,
+  isShowLineNumber: defaultStyleConfig.isShowLineNumber,
+});
+
+// 主题注入是否就绪——注入后触发首屏预览重算。
+const themeReady = ref(false);
+
+onMounted(async () => {
+  // 向 document.head 注入作用域为 #output 的默认主题样式（CSS 变量 + 主题 CSS）。
+  await applyTheme({
+    themeName: defaultStyleConfig.theme,
+    variables: {
+      primaryColor: defaultStyleConfig.primaryColor,
+      fontFamily: defaultStyleConfig.fontFamily,
+      fontSize: defaultStyleConfig.fontSize,
+      headingStyles: defaultStyleConfig.headingStyles,
+    },
+  });
+  themeReady.value = true;
+});
+
+const rendered = computed(() => {
+  // 依赖 themeReady：主题注入完成后让预览重算一次。
+  void themeReady.value;
+  // 每次渲染前重置渲染器内部状态（脚注计数等），避免跨次累积。
+  renderer.reset({
+    citeStatus: defaultStyleConfig.isCiteStatus,
+    legend: defaultStyleConfig.legend,
+    countStatus: defaultStyleConfig.isCountStatus,
+    isMacCodeBlock: defaultStyleConfig.isMacCodeBlock,
+    isShowLineNumber: defaultStyleConfig.isShowLineNumber,
+    themeMode: "light",
+  });
+  return modifyHtmlContent(props.modelValue || "", renderer);
+});
 
 const textarea = ref<HTMLTextAreaElement | null>(null);
 
@@ -66,38 +106,8 @@ defineExpose({ insertImage });
       placeholder="在此输入 Markdown..."
       @input="onInput"
     />
+    <!-- doocs/md 样式预览区：id="output" 与注入主题 CSS 的作用域匹配 -->
     <!-- eslint-disable-next-line vue/no-v-html -->
-    <div
-      class="markdown-preview h-full overflow-auto p-4 box-border bg-white text-left"
-      v-html="rendered"
-    />
+    <div id="output" class="h-full overflow-auto p-4 box-border bg-white text-left" v-html="rendered" />
   </div>
 </template>
-
-<style scoped>
-/* 原子类无法穿透 v-html 渲染出的子元素，此处保留最小 :deep() 样式 */
-.markdown-preview :deep(h1),
-.markdown-preview :deep(h2),
-.markdown-preview :deep(h3) {
-  font-weight: 600;
-  margin: 0.6em 0 0.4em;
-}
-.markdown-preview :deep(p) {
-  margin: 0.5em 0;
-  line-height: 1.7;
-}
-.markdown-preview :deep(pre) {
-  background: #f6f8fa;
-  padding: 12px;
-  border-radius: 6px;
-  overflow: auto;
-}
-.markdown-preview :deep(code) {
-  background: #f6f8fa;
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-.markdown-preview :deep(img) {
-  max-width: 100%;
-}
-</style>
