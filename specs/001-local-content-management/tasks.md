@@ -67,7 +67,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 ### Tests for User Story 1 ⚠️（章程契约测试）
 
 - [~] T016 [P] [US1] 契约测试：往返一致已在存储层覆盖（`storage::article_fs::write_then_read_roundtrip`）；命令层 `create/read/save` 端到端契约测试待补
-- [x] T017 [P] [US1] 单元测试：front matter 解析/序列化 + 正文哈希（`storage::frontmatter` 4 项测试通过；保存冲突路径待补命令层测试）
+- [x] T017 [P] [US1] 单元测试：front matter 解析/序列化 + 正文哈希（`storage::frontmatter` 4 项）+ 保存冲突判定（`commands::article::conflict_only_when_disk_differs_from_base`）
 
 ### Implementation for User Story 1
 
@@ -78,7 +78,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 - [~] T022 [P] [US1] `EditorPanel.vue` 已实现（props 正文/事件回传/样式预览，文件读写走后端）；**doocs/md 实际渲染管线接入待办**——当前用 markdown-it 占位，接缝已留（见组件注释与 research.md 第 1 节）
 - [x] T023 [US1] 编辑器视图：新建/打开/编辑/保存流程 + Dirty 状态 + 未保存提示（FR-007）于 `MainView.vue` 与 `stores/editor.ts`
 - [x] T024 [US1] 外部修改冲突弹窗（覆盖/放弃并重载/另存为）于 `MainView.vue`（FR-019）
-- [ ] T025 [US1] 编辑器插入本地图片 → 调用 `import_asset` 并将相对路径写入 Markdown（FR-014a；后端 command 就绪，前端插图 UI 待接入 EditorPanel）
+- [x] T025 [US1] 编辑器插入本地图片 → 调用 `import_asset` 并在光标处写入 Markdown 相对路径引用（FR-014a，EditorPanel 插图工具栏）
 
 **Checkpoint**: US1 可独立运行与测试——本地 Markdown 写作工具 MVP 成立
 
@@ -113,15 +113,15 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 ### Tests for User Story 3 ⚠️（章程契约测试）
 
-- [ ] T031 [P] [US3] 契约测试：`get_file_tree`/`create_folder`/`rename_path`/`move_path`/`delete_path`（命令层测试待补）
+- [~] T031 [P] [US3] 文件树构建已测（`commands::file_tree::build_node_mirrors_disk_and_marks_articles`，含目录排序/素材标记）；create/rename/move/delete 命令层契约测试待补
 
 ### Implementation for User Story 3
 
 - [x] T032 [US3] 实现 `get_file_tree` command（结构与磁盘一致，目录在前排序，含素材文件，FR-012/FR-014）于 `src-tauri/src/commands/file_tree.rs`
 - [x] T033 [US3] 实现 `create_folder`/`rename_path`/`move_path`/`delete_path`（delete 走 trash 回收站，冲突返回 Conflict，FR-013/FR-020）
-- [ ] T034 [US3] 实现 notify 文件监听 → 广播 `workspace_changed` 事件（notify 依赖已就绪，监听逻辑待实现）
-- [ ] T035 [US3] 文件树组件（tdesign Tree）+ 右键菜单 + 删除确认于 `src/components/file-tree/`（后端就绪，前端组件待实现）
-- [ ] T036 [US3] 前端订阅 `workspace_changed` 事件刷新文件树/列表（依赖 T034）
+- [x] T034 [US3] 实现 notify 文件监听 → 广播 `workspace_changed` 事件于 `src-tauri/src/watcher.rs`，activate 时（重）启动监听
+- [x] T035 [US3] 文件树组件（tdesign Tree）+ 删除确认（移入回收站）于 `src/components/file-tree/FileTree.vue`，点击文章节点打开
+- [x] T036 [US3] 前端订阅 `workspace_changed` 事件刷新文件树/列表于 `MainView.vue`
 
 **Checkpoint**: US1、US2、US3 均可独立工作
 
@@ -139,7 +139,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 - [x] T038 [US4] 实现 `list_articles` command（LIKE 检索 + 排序，从派生缓存读取，降级损坏元数据，FR-015/FR-017/FR-018）
 - [x] T039 [US4] 实现 `update_metadata` command（写 front matter title/tags 并刷新缓存，FR-016）
 - [x] T040 [US4] 文章列表组件 + 检索框 + 排序于 `src/components/article-list/`（FR-015/FR-017；标签过滤 UI 待补）
-- [ ] T041 [US4] 标签与标题编辑 UI → 调用 `update_metadata`（FR-016；后端就绪，前端编辑 UI 待实现）
+- [x] T041 [US4] 标签编辑 UI（t-tag-input，随保存写入 front matter）于 `MainView.vue`（FR-016；标题编辑随文件名/新建，独立改名待 US3 重命名 UI）
 
 **Checkpoint**: 全部用户故事均可独立工作
 

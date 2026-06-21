@@ -128,3 +128,36 @@ fn refresh_index(state: &State<AppState>, root: &Path) {
         let _ = crate::index::rebuild(&conn, root);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_node_mirrors_disk_and_marks_articles() {
+        let root = std::env::temp_dir().join(format!(
+            "qp-tree-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("a.md"), "# a").unwrap();
+        std::fs::write(root.join("img.png"), "x").unwrap();
+        std::fs::write(root.join("sub").join("b.md"), "# b").unwrap();
+
+        let tree = build_node(&root, &root).unwrap();
+        assert_eq!(tree.kind, NodeKind::Directory);
+
+        let a = tree.children.iter().find(|n| n.name == "a.md").unwrap();
+        assert!(a.is_article);
+        let img = tree.children.iter().find(|n| n.name == "img.png").unwrap();
+        assert!(!img.is_article);
+        // 目录排在文件前
+        assert_eq!(tree.children.first().unwrap().name, "sub");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+}

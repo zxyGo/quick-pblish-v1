@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import MarkdownIt from "markdown-it";
+import { open } from "@tauri-apps/plugin-dialog";
+import { MessagePlugin } from "tdesign-vue-next";
+import { api } from "@/bindings/commands";
+import { toAppError } from "@/services/error";
 
 /**
  * Markdown 编辑器 + 样式预览组件。
@@ -16,24 +20,62 @@ const emit = defineEmits<{ "update:modelValue": [value: string] }>();
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
 const rendered = computed(() => md.render(props.modelValue || ""));
 
+const textarea = ref<HTMLTextAreaElement | null>(null);
+
 function onInput(e: Event) {
   emit("update:modelValue", (e.target as HTMLTextAreaElement).value);
+}
+
+/** 在光标处插入文本并回传更新（FR-014a 插图用）。 */
+function insertAtCursor(snippet: string) {
+  const el = textarea.value;
+  const value = props.modelValue ?? "";
+  if (!el) {
+    emit("update:modelValue", value + snippet);
+    return;
+  }
+  const start = el.selectionStart ?? value.length;
+  const end = el.selectionEnd ?? value.length;
+  emit("update:modelValue", value.slice(0, start) + snippet + value.slice(end));
+}
+
+async function insertImage() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+  });
+  if (typeof selected !== "string") return;
+  try {
+    const asset = await api.importAsset(selected);
+    insertAtCursor(`![${asset.fileName}](${asset.relativePath})`);
+    MessagePlugin.success("已插入图片");
+  } catch (e) {
+    MessagePlugin.error(toAppError(e).message);
+  }
 }
 </script>
 
 <template>
-  <div class="grid grid-cols-2 gap-px h-full bg-gray-200">
-    <textarea
-      class="h-full overflow-auto p-4 box-border bg-white border-none outline-none resize-none font-mono text-sm leading-relaxed"
-      :value="modelValue"
-      placeholder="在此输入 Markdown..."
-      @input="onInput"
-    />
-    <!-- eslint-disable-next-line vue/no-v-html -->
-    <div
-      class="markdown-preview h-full overflow-auto p-4 box-border bg-white text-left"
-      v-html="rendered"
-    />
+  <div class="flex flex-col h-full">
+    <div class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200">
+      <t-button size="small" variant="outline" @click="insertImage">
+        插入图片
+      </t-button>
+    </div>
+    <div class="grid grid-cols-2 gap-px flex-1 min-h-0 bg-gray-200">
+      <textarea
+        ref="textarea"
+        class="h-full overflow-auto p-4 box-border bg-white border-none outline-none resize-none font-mono text-sm leading-relaxed"
+        :value="modelValue"
+        placeholder="在此输入 Markdown..."
+        @input="onInput"
+      />
+      <!-- eslint-disable-next-line vue/no-v-html -->
+      <div
+        class="markdown-preview h-full overflow-auto p-4 box-border bg-white text-left"
+        v-html="rendered"
+      />
+    </div>
   </div>
 </template>
 

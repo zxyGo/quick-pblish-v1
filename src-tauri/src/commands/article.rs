@@ -66,6 +66,11 @@ pub fn create_article(
     Ok(content)
 }
 
+/// 乐观冲突判定（FR-019）：磁盘当前哈希与打开时 base_hash 不一致即为冲突。
+fn has_conflict(disk_hash: &Option<String>, base_hash: &str) -> bool {
+    matches!(disk_hash, Some(d) if d != base_hash)
+}
+
 #[tauri::command]
 pub fn save_article(state: State<AppState>, input: SaveArticleInput) -> AppResult<ArticleContent> {
     let root = state.current_root()?;
@@ -73,8 +78,8 @@ pub fn save_article(state: State<AppState>, input: SaveArticleInput) -> AppResul
     // 乐观冲突检测（FR-019）
     let disk_hash = article_fs::current_hash(&root, &input.relative_path)?;
     let mut target_path = input.relative_path.clone();
-    if let Some(disk) = &disk_hash {
-        if *disk != input.base_hash {
+    if has_conflict(&disk_hash, &input.base_hash) {
+        {
             match input.on_conflict {
                 ConflictStrategy::Abort => {
                     return Err(AppError::Conflict(
@@ -157,4 +162,19 @@ pub fn update_metadata(
         updated: content.updated,
         excerpt: crate::storage::frontmatter::excerpt(&content.body, 120),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conflict_only_when_disk_differs_from_base() {
+        // 文件不存在（新建）→ 无冲突
+        assert!(!has_conflict(&None, "abc"));
+        // 磁盘与 base 一致 → 无冲突
+        assert!(!has_conflict(&Some("abc".into()), "abc"));
+        // 磁盘被外部改动，与 base 不一致 → 冲突
+        assert!(has_conflict(&Some("xyz".into()), "abc"));
+    }
 }

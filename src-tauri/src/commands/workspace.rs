@@ -20,8 +20,12 @@ fn to_workspace(path: &Path) -> Workspace {
     }
 }
 
-/// 激活某工作目录：校验可访问、持久化、重建该目录缓存。
-fn activate(state: &State<AppState>, path: PathBuf) -> AppResult<Workspace> {
+/// 激活某工作目录：校验可访问、持久化、重建该目录缓存、（重）启动文件监听。
+fn activate(
+    app: &tauri::AppHandle,
+    state: &State<AppState>,
+    path: PathBuf,
+) -> AppResult<Workspace> {
     if !path.exists() {
         return Err(AppError::NotFound(format!(
             "工作目录不存在: {}",
@@ -50,6 +54,11 @@ fn activate(state: &State<AppState>, path: PathBuf) -> AppResult<Workspace> {
         let mut ws = state.workspace.lock().expect("workspace lock");
         *ws = Some(path.clone());
     }
+    // 替换文件监听器以监听新目录（旧 watcher 被 drop 自动停止）
+    match crate::watcher::watch(app.clone(), &path) {
+        Ok(w) => *state.watcher.lock().expect("watcher lock") = Some(w),
+        Err(_) => *state.watcher.lock().expect("watcher lock") = None,
+    }
     let mut cfg = config::load(&state.config_dir);
     config::set_current(&mut cfg, &path.to_string_lossy().replace('\\', "/"));
     config::save(&state.config_dir, &cfg)?;
@@ -57,17 +66,28 @@ fn activate(state: &State<AppState>, path: PathBuf) -> AppResult<Workspace> {
 }
 
 #[tauri::command]
-pub fn select_workspace(state: State<AppState>, path: String) -> AppResult<Workspace> {
-    activate(&state, PathBuf::from(path))
+pub fn select_workspace(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> AppResult<Workspace> {
+    activate(&app, &state, PathBuf::from(path))
 }
 
 #[tauri::command]
-pub fn switch_workspace(state: State<AppState>, path: String) -> AppResult<Workspace> {
-    activate(&state, PathBuf::from(path))
+pub fn switch_workspace(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> AppResult<Workspace> {
+    activate(&app, &state, PathBuf::from(path))
 }
 
 #[tauri::command]
-pub fn get_current_workspace(state: State<AppState>) -> AppResult<Option<Workspace>> {
+pub fn get_current_workspace(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+) -> AppResult<Option<Workspace>> {
     let cfg = config::load(&state.config_dir);
     let Some(current) = cfg.current else {
         return Ok(None);
@@ -78,7 +98,7 @@ pub fn get_current_workspace(state: State<AppState>) -> AppResult<Option<Workspa
         return Ok(None);
     }
     // 自动激活上次目录
-    activate(&state, path).map(Some)
+    activate(&app, &state, path).map(Some)
 }
 
 #[tauri::command]

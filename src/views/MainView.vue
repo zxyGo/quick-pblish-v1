@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { DialogPlugin, MessagePlugin } from "tdesign-vue-next";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import WorkspacePicker from "@/components/workspace/WorkspacePicker.vue";
 import ArticleList from "@/components/article-list/ArticleList.vue";
+import FileTree from "@/components/file-tree/FileTree.vue";
 import EditorPanel from "@/components/editor/EditorPanel.vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useArticlesStore } from "@/stores/articles";
@@ -16,17 +18,34 @@ const articles = useArticlesStore();
 const editor = useEditorStore();
 
 const newTitle = ref("");
+const sideTab = ref("articles");
+const fileTree = ref<InstanceType<typeof FileTree> | null>(null);
 
-onMounted(() => workspace.init());
+let unlisten: UnlistenFn | null = null;
 
-async function openArticle(item: ArticleSummary) {
+onMounted(async () => {
+  await workspace.init();
+  // 监听外部文件变化，刷新列表与文件树（T036 / FR-019 一致性）
+  unlisten = await listen("workspace_changed", () => {
+    articles.refresh();
+    fileTree.value?.refresh();
+  });
+});
+
+onUnmounted(() => unlisten?.());
+
+async function openArticle(relativePath: string) {
   if (editor.dirty && !(await confirmDiscard())) return;
   try {
-    const content = await api.readArticle(item.relativePath);
+    const content = await api.readArticle(relativePath);
     editor.load(content);
   } catch (e) {
     MessagePlugin.error(toAppError(e).message);
   }
+}
+
+function openFromList(item: ArticleSummary) {
+  openArticle(item.relativePath);
 }
 
 function confirmDiscard(): Promise<boolean> {
@@ -57,6 +76,7 @@ async function createNew() {
     editor.load(content);
     newTitle.value = "";
     await articles.refresh();
+    fileTree.value?.refresh();
     MessagePlugin.success("已创建");
   } catch (e) {
     MessagePlugin.error(toAppError(e).message);
@@ -118,7 +138,14 @@ function resolveConflict() {
           <t-input v-model="newTitle" placeholder="新文章标题" @enter="createNew" />
           <t-button theme="primary" @click="createNew">新建</t-button>
         </div>
-        <ArticleList @select="openArticle" />
+        <t-tabs v-model="sideTab" class="flex-1 min-h-0 flex flex-col">
+          <t-tab-panel value="articles" label="文章">
+            <ArticleList @select="openFromList" />
+          </t-tab-panel>
+          <t-tab-panel value="files" label="文件">
+            <FileTree ref="fileTree" @open="openArticle" />
+          </t-tab-panel>
+        </t-tabs>
       </template>
 
       <template v-else>
@@ -140,7 +167,21 @@ function resolveConflict() {
           >保存</t-button
         >
       </t-header>
-      <t-content class="h-[calc(100vh-56px)] overflow-hidden">
+
+      <div
+        v-if="editor.hasOpen"
+        class="flex items-center gap-2 px-4 py-2 border-b border-gray-200"
+      >
+        <span class="text-xs muted">标签</span>
+        <t-tag-input
+          v-model="editor.tags"
+          placeholder="回车添加标签"
+          class="max-w-120"
+          @change="editor.markDirty"
+        />
+      </div>
+
+      <t-content class="flex-1 min-h-0 overflow-hidden">
         <EditorPanel
           v-if="editor.hasOpen"
           v-model="editor.body"

@@ -4,6 +4,7 @@ mod error;
 mod index;
 mod state;
 mod storage;
+mod watcher;
 
 use std::sync::Mutex;
 
@@ -34,6 +35,7 @@ pub fn run() {
                 workspace: Mutex::new(None),
                 db: Mutex::new(conn),
                 config_dir,
+                watcher: Mutex::new(None),
             });
             Ok(())
         })
