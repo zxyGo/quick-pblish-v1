@@ -6,6 +6,7 @@ import WorkspacePicker from "@/components/workspace/WorkspacePicker.vue";
 import ArticleList from "@/components/article-list/ArticleList.vue";
 import FileTree from "@/components/file-tree/FileTree.vue";
 import EditorPanel from "@/components/editor/EditorPanel.vue";
+import EditorMenuBar from "@/components/editor/EditorMenuBar.vue";
 import { formatTime } from "@/services/format";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useArticlesStore } from "@/stores/articles";
@@ -22,6 +23,22 @@ const newTitle = ref("");
 const sideTab = ref("articles");
 const fileTree = ref<InstanceType<typeof FileTree> | null>(null);
 const editorPanel = ref<InstanceType<typeof EditorPanel> | null>(null);
+const newTitleInput = ref<{ focus?: () => void } | null>(null);
+
+/** 菜单栏「编辑/格式/插入/样式」命令透传给编辑器。 */
+function onEditorAction(action: string, arg?: string) {
+  editorPanel.value?.exec(action, arg);
+}
+
+/** 菜单栏「文件」命令。 */
+function onFileAction(action: string) {
+  if (action === "save") {
+    save();
+  } else if (action === "new") {
+    sideTab.value = "articles";
+    newTitleInput.value?.focus?.();
+  }
+}
 
 let unlisten: UnlistenFn | null = null;
 
@@ -137,7 +154,7 @@ function resolveConflict() {
           <WorkspacePicker />
         </div>
         <div class="flex gap-2 px-3 py-2">
-          <t-input v-model="newTitle" placeholder="新文章标题" @enter="createNew" />
+          <t-input ref="newTitleInput" v-model="newTitle" placeholder="新文章标题" @enter="createNew" />
           <t-button theme="primary" @click="createNew">新建</t-button>
         </div>
         <t-tabs v-model="sideTab" class="flex-1 min-h-0 flex flex-col">
@@ -176,6 +193,7 @@ function resolveConflict() {
 
       <div class="flex flex-col flex-1 min-h-0 bg-white">
         <template v-if="editor.hasOpen">
+          <EditorMenuBar @editor-action="onEditorAction" @file-action="onFileAction" />
           <div
             class="flex items-center gap-3 px-4 py-2 border-b border-gray-200 shrink-0"
           >
@@ -186,14 +204,6 @@ function resolveConflict() {
               class="flex-1 min-w-0"
               @change="editor.markDirty"
             />
-            <t-button
-              size="small"
-              variant="outline"
-              class="shrink-0"
-              @click="editorPanel?.insertImage()"
-            >
-              插入图片
-            </t-button>
           </div>
           <div class="flex-1 min-h-0">
             <EditorPanel
