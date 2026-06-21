@@ -18,8 +18,11 @@
 - **Alternatives considered**:
   - iframe 嵌入整个 doocs/md SPA：隔离性好但通信成本高、样式/状态同步麻烦，且难以贯彻统一 UI。
   - 从零自建编辑器（CodeMirror + markdown-it）：可控但重复造轮子，放弃了用户明确要求的 doocs/md。
-- **Open item（门禁前必须关闭）**: **核验 doocs/md 的开源许可证**与本项目拟用许可证的兼容性，
-  并在依赖文档中标注（章程原则 V）。集成前确认其许可证条款（含是否要求衍生作品同协议开源）。
+- **License（已核验，门禁关闭）**: doocs/md 采用 **WTFPL v2**（Copyright © 2025 Doocs <admin@doocs.org>）。
+  WTFPL 是最宽松的许可证之一，对使用/修改/再分发无实质限制，**不要求衍生作品同协议开源**，与本项目选用
+  任何主流开源许可证（MIT / Apache-2.0 / GPL 等）均兼容（章程原则 V 满足）。
+  建议：尽管 WTFPL 不强制署名，集成时仍保留对 doocs/md 的致谢。
+  **本项目许可证已定：MIT**（Copyright © 2026 zxyGo，`LICENSE` 已创建于仓库根）。
 
 ## 2. 前后端类型契约同步
 
@@ -97,8 +100,9 @@
 
 ---
 
-## 待关闭门禁项汇总（进入实现前）
+## 门禁项状态（进入实现前）
 
-1. **doocs/md 许可证核验**（章程原则 V）—— 决定其集成的合法边界，影响是否需调整本项目许可证选择。
+1. ~~**doocs/md 许可证核验**（章程原则 V）~~ —— ✅ 已关闭：doocs/md 为 WTFPL v2，与任何主流开源许可证兼容，
+   无衍生作品同协议开源要求（见上节 1）。
 
-所有其余 Technical Context 不确定项已在上文解决，无遗留 NEEDS CLARIFICATION。
+所有 Technical Context 不确定项与门禁项均已解决，无遗留 NEEDS CLARIFICATION。
