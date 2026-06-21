@@ -1,0 +1,26 @@
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.log
+.env*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Rust / Tauri
+src-tauri/target/
+debug/
+release/
+*.rs.bk
+*.rlib
+
+# Test / coverage
+coverage/

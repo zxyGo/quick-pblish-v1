@@ -1,8 +1,9 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (template/unversioned) → 1.0.0
-Bump rationale: Initial ratification of the project constitution (MAJOR baseline).
+Version change: 1.0.0 → 1.1.0
+Bump rationale: 技术栈约束新增 UnoCSS 样式方案（原子化 CSS，非必要不手写 CSS）——
+新增实质性指导，按语义化版本属 MINOR。初始 1.0.0 为项目章程的首次批准（MAJOR 基线）。
 
 Modified principles:
   - [PRINCIPLE_1_NAME] → I. 本地优先与数据自主 (Local-First & Data Ownership)
@@ -87,6 +88,8 @@ Deferred TODOs: none
 - **应用框架**: Tauri（Rust 后端 + WebView 前端），目标平台 Windows / macOS / Linux。
 - **前端框架**: Vue 3（Composition API）+ TypeScript（strict）。
 - **UI 组件库**: tdesign-vue-next，作为统一设计语言来源；自定义组件 MUST 优先复用其基础组件与设计令牌。
+- **样式方案**: UnoCSS（原子化 CSS）。组件样式 MUST 优先使用 UnoCSS 原子类表达；非必要不手写 CSS，
+  仅当原子类无法表达（如 `:deep()` 穿透第三方组件、复杂选择器、根元素全局样式）时，才允许少量 scoped CSS。
 - **Markdown 编辑器**: 集成 [doocs/md](https://github.com/doocs/md) 作为编辑与多平台样式渲染核心；集成方式 MUST 尊重其许可证。
 - **存储**: 本地文件系统（Markdown + 元数据）；如需索引/查询，SHOULD 使用嵌入式方案（如 SQLite），且 MUST NOT 成为内容的唯一真相来源。
 
@@ -105,4 +108,4 @@ Deferred TODOs: none
 - **版本策略**: 遵循语义化版本——MAJOR 用于原则的移除或不兼容重定义，MINOR 用于新增原则或实质性扩充，PATCH 用于澄清与措辞修正。
 - **合规审查**: 每次 PR 评审 MUST 核验对本章程的符合性；引入额外复杂度 MUST 在 plan 中说明理由。运行时开发指引以各 agent 上下文文件为准。
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-21 | **Last Amended**: 2026-06-21
+**Version**: 1.1.0 | **Ratified**: 2026-06-21 | **Last Amended**: 2026-06-21
