@@ -86,7 +86,9 @@ pub fn write_article(
 pub fn current_hash(root: &Path, relative: &str) -> AppResult<Option<String>> {
     let abs = resolve_in_workspace(root, relative)?;
     match std::fs::read_to_string(&abs) {
-        Ok(raw) => Ok(Some(frontmatter::content_hash(&frontmatter::parse(&raw).body))),
+        Ok(raw) => Ok(Some(frontmatter::content_hash(
+            &frontmatter::parse(&raw).body,
+        ))),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }

@@ -43,7 +43,10 @@ pub(crate) fn list_articles_core(
     index::query(&conn, &root, query)
 }
 
-pub(crate) fn read_article_core(state: &AppState, relative_path: &str) -> AppResult<ArticleContent> {
+pub(crate) fn read_article_core(
+    state: &AppState,
+    relative_path: &str,
+) -> AppResult<ArticleContent> {
     let root = state.current_root()?;
     article_fs::read_article(&root, relative_path)
 }
@@ -252,8 +255,8 @@ mod tests {
         let read = read_article_core(&env.state, "a.md").unwrap();
 
         // save 正常
-        let saved = save_article_core(&env.state, &save_input("a.md", "正文v2", &read.base_hash))
-            .unwrap();
+        let saved =
+            save_article_core(&env.state, &save_input("a.md", "正文v2", &read.base_hash)).unwrap();
         assert_eq!(saved.body, "正文v2");
 
         // 用过期 baseHash 保存 + Abort → Conflict（FR-019）
@@ -323,9 +326,19 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(list_articles_core(&env.state, &ListQuery::default()).unwrap().len(), 1);
+        assert_eq!(
+            list_articles_core(&env.state, &ListQuery::default())
+                .unwrap()
+                .len(),
+            1
+        );
         delete_article_core(&env.state, "gone.md").unwrap();
         assert!(!env.ws.join("gone.md").exists());
-        assert_eq!(list_articles_core(&env.state, &ListQuery::default()).unwrap().len(), 0);
+        assert_eq!(
+            list_articles_core(&env.state, &ListQuery::default())
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }

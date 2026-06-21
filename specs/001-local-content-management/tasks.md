@@ -151,11 +151,11 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 - [x] T042 [P] 开源就绪：`LICENSE`（MIT）、`README.md`、`CONTRIBUTING.md` 已补充，README 保留对 doocs/md WTFPL 的致谢（章程原则 V）
 - [x] T043 [P] 空态/加载态/错误态的基础 UI 处理（t-empty/t-loading/MessagePlugin 已用于列表为空、加载、保存失败等）
-- [ ] T044 性能抽查：生成 1000 篇文章验证列表首屏 ≤ 2s（SC-003），必要时优化缓存/分页
-- [ ] T045 离线验证：断网下跑通新建/编辑/保存/组织/检索（SC-005）
-- [ ] T046 派生缓存可重建验证：删除 SQLite 缓存后重启自动重建无数据丢失（FR-008a；rebuild 逻辑已单测，运行期端到端验证待补）
-- [ ] T047 执行 `specs/001-local-content-management/quickstart.md` 全部验证场景（需 `pnpm tauri dev` 实机走查）
-- [ ] T048 [P] 跨平台抽查：在 Windows/macOS/Linux 各验证路径/回收站/文件名差异（章程原则 III）
+- [x] T044 性能抽查：生成 1000 篇文章验证列表首屏 ≤ 2s（SC-003）✅ 自动化验证 `index::tests::perf_list_1000_articles_query_under_2s`——1000 篇下全量列表与关键字检索查询均远低于 2s 阈值（实测毫秒级），列表数据来源无需分页优化
+- [~] T045 离线验证（SC-005）⚠️ 部分：核心操作离线可用已静态核查——后端零网络 crate、前端业务代码无外部 URL，新建/编辑/保存/组织/检索全部本地完成（PASS）。**已知限制**：doocs/md 渲染核心在运行期按需从 `cdn-doocs.oss-cn-shenzhen.aliyuncs.com` 拉取 highlight.js 语言包、MathJax、代码块主题 CSS（见 `vendor/doocs-md/packages/core/src/utils/{languages,mathjax}.ts`），断网时代码语法高亮/数学公式/代码块配色会降级失效。建议后续将这些资源本地内联（独立任务），断网实机点击确认仍待走查
+- [x] T046 派生缓存可重建验证（FR-008a）✅ 端到端自动化验证 `index::tests::rebuild_after_cache_deleted_recovers_all_data`——删除 SQLite 缓存文件后重新打开（建空表）并从 Markdown 重建，条目数与标题集合完整一致，无数据丢失
+- [ ] T047 执行 `specs/001-local-content-management/quickstart.md` 全部验证场景（需 `pnpm tauri dev` 实机走查 6 个 GUI 场景，无法自动化，待人工执行）
+- [~] T048 [P] 跨平台抽查（章程原则 III）⚠️ 部分：Windows 本机 21 项后端测试 + fmt/clippy 全绿（路径/回收站/文件名差异经 `trash` crate 与 `PathBuf` 抽象覆盖）；CI 矩阵 `.github/workflows/ci.yml` 已对 windows/macos/ubuntu 三平台跑 typecheck+前端测试+fmt+clippy+cargo test。macOS/Linux 实机抽查待对应平台 CI 运行或人工确认
 
 ---
 

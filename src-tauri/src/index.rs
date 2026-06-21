@@ -65,10 +65,11 @@ pub fn upsert(conn: &Connection, root: &Path, abs: &Path) -> AppResult<()> {
     let parsed = frontmatter::parse(&raw);
     let fm = parsed.front_matter;
     let relative = crate::storage::article_fs::to_relative_string(root, abs);
-    let title = fm
-        .title
-        .clone()
-        .unwrap_or_else(|| abs.file_stem().map(|s| s.to_string_lossy().into()).unwrap_or_default());
+    let title = fm.title.clone().unwrap_or_else(|| {
+        abs.file_stem()
+            .map(|s| s.to_string_lossy().into())
+            .unwrap_or_default()
+    });
     let meta = std::fs::metadata(abs)?;
     let mtime = meta
         .modified()
@@ -184,7 +185,8 @@ mod tests {
     use super::*;
 
     fn temp_ws() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("qp-idx-{}-{}", std::process::id(), rand_suffix()));
+        let dir =
+            std::env::temp_dir().join(format!("qp-idx-{}-{}", std::process::id(), rand_suffix()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -213,8 +215,10 @@ mod tests {
         let all = query(&conn, &ws, &ListQuery::default()).unwrap();
         assert_eq!(all.len(), 2);
 
-        let mut q = ListQuery::default();
-        q.keyword = Some("Alpha".into());
+        let mut q = ListQuery {
+            keyword: Some("Alpha".into()),
+            ..Default::default()
+        };
         let found = query(&conn, &ws, &q).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "Alpha");
@@ -222,6 +226,95 @@ mod tests {
         // 正文检索
         q.keyword = Some("hello".into());
         assert_eq!(query(&conn, &ws, &q).unwrap().len(), 1);
+
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    /// T044 性能抽查（SC-003）：1000 篇文章下列表查询首屏 ≤ 2s。
+    /// 这里度量的是列表数据来源——派生缓存的 `query` 耗时（前端渲染另计）。
+    #[test]
+    fn perf_list_1000_articles_query_under_2s() {
+        let ws = temp_ws();
+        for i in 0..1000 {
+            std::fs::write(
+                ws.join(format!("article-{i:04}.md")),
+                format!(
+                    "---\ntitle: Article {i}\ntags: [t{}, bench]\ncreated: 2026-06-{:02}\n---\n正文内容 number {i} lorem ipsum dolor sit amet.",
+                    i % 10,
+                    (i % 28) + 1
+                ),
+            )
+            .unwrap();
+        }
+        let conn = open(&ws.join("index.sqlite")).unwrap();
+        let n = rebuild(&conn, &ws).unwrap();
+        assert_eq!(n, 1000);
+
+        // 全量列表首屏
+        let start = std::time::Instant::now();
+        let all = query(&conn, &ws, &ListQuery::default()).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(all.len(), 1000);
+        assert!(
+            elapsed.as_millis() <= 2000,
+            "全量列表查询耗时 {elapsed:?} 超过 2s 阈值"
+        );
+
+        // 关键字检索路径同样应在阈值内
+        let q = ListQuery {
+            keyword: Some("number 5".into()),
+            ..Default::default()
+        };
+        let start = std::time::Instant::now();
+        let found = query(&conn, &ws, &q).unwrap();
+        let elapsed = start.elapsed();
+        assert!(!found.is_empty());
+        assert!(
+            elapsed.as_millis() <= 2000,
+            "检索查询耗时 {elapsed:?} 超过 2s 阈值"
+        );
+
+        std::fs::remove_dir_all(&ws).ok();
+    }
+
+    /// T046 派生缓存可重建端到端验证（FR-008a）：
+    /// 删除 SQLite 缓存文件后，从 Markdown 重新打开并重建，数据完整无丢失。
+    #[test]
+    fn rebuild_after_cache_deleted_recovers_all_data() {
+        let ws = temp_ws();
+        for i in 0..5 {
+            std::fs::write(
+                ws.join(format!("note-{i}.md")),
+                format!("---\ntitle: Note {i}\ntags: [keep]\n---\n可恢复正文 {i}"),
+            )
+            .unwrap();
+        }
+        let db_path = ws.join("index.sqlite");
+
+        // 首次构建
+        let conn = open(&db_path).unwrap();
+        assert_eq!(rebuild(&conn, &ws).unwrap(), 5);
+        let before = query(&conn, &ws, &ListQuery::default()).unwrap();
+        assert_eq!(before.len(), 5);
+        drop(conn);
+
+        // 模拟缓存丢失：删除 SQLite 文件
+        std::fs::remove_file(&db_path).unwrap();
+        assert!(!db_path.exists());
+
+        // 重启：重新打开（建空表）并从 Markdown 重建
+        let conn2 = open(&db_path).unwrap();
+        assert_eq!(rebuild(&conn2, &ws).unwrap(), 5);
+        let after = query(&conn2, &ws, &ListQuery::default()).unwrap();
+        assert_eq!(after.len(), 5, "重建后条目数应与原来一致");
+
+        // 内容完整：标题集合一致
+        let mut titles: Vec<_> = after.iter().map(|a| a.title.clone()).collect();
+        titles.sort();
+        assert_eq!(
+            titles,
+            vec!["Note 0", "Note 1", "Note 2", "Note 3", "Note 4"]
+        );
 
         std::fs::remove_dir_all(&ws).ok();
     }

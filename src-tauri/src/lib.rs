@@ -17,14 +17,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("无法解析应用数据目录");
-            let config_dir = app
-                .path()
-                .app_config_dir()
-                .expect("无法解析应用配置目录");
+            let data_dir = app.path().app_data_dir().expect("无法解析应用数据目录");
+            let config_dir = app.path().app_config_dir().expect("无法解析应用配置目录");
             std::fs::create_dir_all(&data_dir).ok();
             std::fs::create_dir_all(&config_dir).ok();
 

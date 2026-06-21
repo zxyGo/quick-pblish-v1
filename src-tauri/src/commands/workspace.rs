@@ -68,7 +68,10 @@ pub(crate) fn get_current_core(state: &AppState) -> AppResult<Option<Workspace>>
 
 pub(crate) fn list_recent_core(state: &AppState) -> Vec<Workspace> {
     let cfg = config::load(&state.config_dir);
-    cfg.recent.iter().map(|p| to_workspace(Path::new(p))).collect()
+    cfg.recent
+        .iter()
+        .map(|p| to_workspace(Path::new(p)))
+        .collect()
 }
 
 /// 替换文件监听器以监听新目录（旧 watcher 被 drop 自动停止）。

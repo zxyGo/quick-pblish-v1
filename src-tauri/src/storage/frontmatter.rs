@@ -90,9 +90,7 @@ fn split_closing_fence(after_open: &str) -> Option<(&str, &str)> {
         let abs = search_start + idx;
         let at_line_start = abs == 0 || bytes[abs - 1] == b'\n';
         let after = &after_open[abs + 3..];
-        let at_line_end = after.is_empty()
-            || after.starts_with('\n')
-            || after.starts_with("\r\n");
+        let at_line_end = after.is_empty() || after.starts_with('\n') || after.starts_with("\r\n");
         if at_line_start && at_line_end {
             let yaml = &after_open[..abs];
             let body = strip_line_break(after).unwrap_or(after);
