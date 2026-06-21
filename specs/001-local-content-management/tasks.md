@@ -66,7 +66,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 ### Tests for User Story 1 ⚠️（章程契约测试）
 
-- [~] T016 [P] [US1] 契约测试：往返一致已在存储层覆盖（`storage::article_fs::write_then_read_roundtrip`）；命令层 `create/read/save` 端到端契约测试待补
+- [x] T016 [P] [US1] 契约测试：命令层 `create/read/save` 端到端往返 + 冲突 abort/overwrite（`commands::article::create_read_save_roundtrip`）
 - [x] T017 [P] [US1] 单元测试：front matter 解析/序列化 + 正文哈希（`storage::frontmatter` 4 项）+ 保存冲突判定（`commands::article::conflict_only_when_disk_differs_from_base`）
 
 ### Implementation for User Story 1
@@ -92,7 +92,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 ### Tests for User Story 2 ⚠️（章程契约测试）
 
-- [ ] T026 [P] [US2] 契约测试：`select_workspace`/`get_current_workspace`/`switch_workspace`/`list_recent_workspaces`（命令层测试待补；config 持久化已在 T012 测试）
+- [x] T026 [P] [US2] 契约测试：workspace 激活持久化/重读、不可访问返回 None、缺失目录 NotFound（`commands::workspace::tests` 3 项）
 
 ### Implementation for User Story 2
 
@@ -113,7 +113,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 ### Tests for User Story 3 ⚠️（章程契约测试）
 
-- [~] T031 [P] [US3] 文件树构建已测（`commands::file_tree::build_node_mirrors_disk_and_marks_articles`，含目录排序/素材标记）；create/rename/move/delete 命令层契约测试待补
+- [x] T031 [P] [US3] 契约测试：build_node 镜像磁盘 + create/rename/move/delete 同步与同名 Conflict（`commands::file_tree::tests` 2 项）
 
 ### Implementation for User Story 3
 
@@ -135,7 +135,7 @@ Tauri 单仓库：前端 `src/`，后端 `src-tauri/src/`，前端测试 `tests/
 
 ### Tests for User Story 4 ⚠️（章程契约测试）
 
-- [~] T037 [P] [US4] 检索/列表已在 `index::tests::rebuild_and_query` 覆盖（标题/正文检索）；命令层 `list_articles`/`update_metadata` 端到端契约测试待补
+- [x] T037 [P] [US4] 契约测试：`list_articles` 检索/排序 + `update_metadata` 写标签后按标签检索（`commands::article::list_search_sort_and_update_metadata`）
 - [x] T038 [US4] 实现 `list_articles` command（LIKE 检索 + 排序，从派生缓存读取，降级损坏元数据，FR-015/FR-017/FR-018）
 - [x] T039 [US4] 实现 `update_metadata` command（写 front matter title/tags 并刷新缓存，FR-016）
 - [x] T040 [US4] 文章列表组件 + 检索框 + 排序于 `src/components/article-list/`（FR-015/FR-017；标签过滤 UI 待补）

@@ -6,6 +6,7 @@ import WorkspacePicker from "@/components/workspace/WorkspacePicker.vue";
 import ArticleList from "@/components/article-list/ArticleList.vue";
 import FileTree from "@/components/file-tree/FileTree.vue";
 import EditorPanel from "@/components/editor/EditorPanel.vue";
+import { formatTime } from "@/services/format";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useArticlesStore } from "@/stores/articles";
 import { useEditorStore } from "@/stores/editor";
@@ -20,6 +21,7 @@ const editor = useEditorStore();
 const newTitle = ref("");
 const sideTab = ref("articles");
 const fileTree = ref<InstanceType<typeof FileTree> | null>(null);
+const editorPanel = ref<InstanceType<typeof EditorPanel> | null>(null);
 
 let unlisten: UnlistenFn | null = null;
 
@@ -149,46 +151,62 @@ function resolveConflict() {
       </template>
 
       <template v-else>
-        <t-empty description="请选择一个工作目录开始">
+        <div class="flex flex-col items-center justify-center flex-1 gap-4 p-6">
+          <t-empty description="请选择一个工作目录开始" />
           <WorkspacePicker />
-        </t-empty>
+        </div>
       </template>
     </t-aside>
 
-    <t-layout>
+    <t-layout class="min-w-0">
       <t-header
-        class="flex items-center justify-between px-4 border-b border-gray-200"
+        class="flex items-center justify-between px-4 border-b border-gray-200 bg-white shrink-0"
       >
-        <span class="font-600">
-          {{ editor.hasOpen ? editor.title : "未打开文章" }}
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="font-600 truncate">
+            {{ editor.hasOpen ? editor.title : "未打开文章" }}
+          </span>
           <t-tag v-if="editor.dirty" theme="warning" size="small">未保存</t-tag>
-        </span>
-        <t-button v-if="editor.hasOpen" theme="primary" @click="save"
-          >保存</t-button
-        >
+          <span v-if="editor.hasOpen && editor.open" class="text-xs muted shrink-0">
+            {{ formatTime(editor.open.updated) }}
+          </span>
+        </div>
+        <t-button v-if="editor.hasOpen" theme="primary" @click="save">保存</t-button>
       </t-header>
 
-      <div
-        v-if="editor.hasOpen"
-        class="flex items-center gap-2 px-4 py-2 border-b border-gray-200"
-      >
-        <span class="text-xs muted">标签</span>
-        <t-tag-input
-          v-model="editor.tags"
-          placeholder="回车添加标签"
-          class="max-w-120"
-          @change="editor.markDirty"
-        />
+      <div class="flex flex-col flex-1 min-h-0 bg-white">
+        <template v-if="editor.hasOpen">
+          <div
+            class="flex items-center gap-3 px-4 py-2 border-b border-gray-200 shrink-0"
+          >
+            <span class="text-xs muted shrink-0">标签</span>
+            <t-tag-input
+              v-model="editor.tags"
+              placeholder="回车添加标签"
+              class="flex-1 min-w-0"
+              @change="editor.markDirty"
+            />
+            <t-button
+              size="small"
+              variant="outline"
+              class="shrink-0"
+              @click="editorPanel?.insertImage()"
+            >
+              插入图片
+            </t-button>
+          </div>
+          <div class="flex-1 min-h-0">
+            <EditorPanel
+              ref="editorPanel"
+              v-model="editor.body"
+              @update:model-value="editor.markDirty"
+            />
+          </div>
+        </template>
+        <div v-else class="flex-1 flex items-center justify-center">
+          <t-empty description="新建或从左侧选择一篇文章" />
+        </div>
       </div>
-
-      <t-content class="flex-1 min-h-0 overflow-hidden">
-        <EditorPanel
-          v-if="editor.hasOpen"
-          v-model="editor.body"
-          @update:model-value="editor.markDirty"
-        />
-        <t-empty v-else description="新建或从左侧选择一篇文章" />
-      </t-content>
     </t-layout>
   </t-layout>
 </template>

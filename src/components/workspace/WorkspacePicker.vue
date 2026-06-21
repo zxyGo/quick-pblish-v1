@@ -28,21 +28,20 @@ async function openRecent(path: string) {
 </script>
 
 <template>
-  <div class="p-3">
-    <t-button theme="primary" @click="pickFolder">选择工作目录</t-button>
-    <div v-if="workspace.recent.length" class="mt-4">
+  <div class="w-full">
+    <t-button theme="primary" block @click="pickFolder">选择工作目录</t-button>
+
+    <div v-if="workspace.recent.length" class="mt-3">
       <div class="text-xs muted mb-1">最近使用</div>
-      <t-list size="small">
-        <t-list-item
-          v-for="r in workspace.recent"
-          :key="r.path"
-          class="flex flex-col cursor-pointer"
-          @click="openRecent(r.path)"
-        >
-          <span class="font-600">{{ r.name }}</span>
-          <span class="text-xs muted">{{ r.path }}</span>
-        </t-list-item>
-      </t-list>
+      <div
+        v-for="r in workspace.recent"
+        :key="r.path"
+        class="px-2 py-1.5 rounded cursor-pointer hover:bg-gray-50 transition-colors"
+        @click="openRecent(r.path)"
+      >
+        <div class="text-sm font-600 truncate">{{ r.name }}</div>
+        <div class="text-xs muted truncate" :title="r.path">{{ r.path }}</div>
+      </div>
     </div>
   </div>
 </template>

@@ -26,7 +26,6 @@ function onInput(e: Event) {
   emit("update:modelValue", (e.target as HTMLTextAreaElement).value);
 }
 
-/** 在光标处插入文本并回传更新（FR-014a 插图用）。 */
 function insertAtCursor(snippet: string) {
   const el = textarea.value;
   const value = props.modelValue ?? "";
@@ -39,6 +38,7 @@ function insertAtCursor(snippet: string) {
   emit("update:modelValue", value.slice(0, start) + snippet + value.slice(end));
 }
 
+/** 选择本地图片 → 复制进工作目录 assets/ → 光标处插入相对路径引用（FR-014a）。 */
 async function insertImage() {
   const selected = await open({
     multiple: false,
@@ -53,34 +53,39 @@ async function insertImage() {
     MessagePlugin.error(toAppError(e).message);
   }
 }
+
+defineExpose({ insertImage });
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <div class="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200">
-      <t-button size="small" variant="outline" @click="insertImage">
-        插入图片
-      </t-button>
-    </div>
-    <div class="grid grid-cols-2 gap-px flex-1 min-h-0 bg-gray-200">
-      <textarea
-        ref="textarea"
-        class="h-full overflow-auto p-4 box-border bg-white border-none outline-none resize-none font-mono text-sm leading-relaxed"
-        :value="modelValue"
-        placeholder="在此输入 Markdown..."
-        @input="onInput"
-      />
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <div
-        class="markdown-preview h-full overflow-auto p-4 box-border bg-white text-left"
-        v-html="rendered"
-      />
-    </div>
+  <div class="grid grid-cols-2 gap-px h-full bg-gray-200">
+    <textarea
+      ref="textarea"
+      class="h-full overflow-auto p-4 box-border bg-white border-none outline-none resize-none font-mono text-sm leading-relaxed"
+      :value="modelValue"
+      placeholder="在此输入 Markdown..."
+      @input="onInput"
+    />
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div
+      class="markdown-preview h-full overflow-auto p-4 box-border bg-white text-left"
+      v-html="rendered"
+    />
   </div>
 </template>
 
 <style scoped>
 /* 原子类无法穿透 v-html 渲染出的子元素，此处保留最小 :deep() 样式 */
+.markdown-preview :deep(h1),
+.markdown-preview :deep(h2),
+.markdown-preview :deep(h3) {
+  font-weight: 600;
+  margin: 0.6em 0 0.4em;
+}
+.markdown-preview :deep(p) {
+  margin: 0.5em 0;
+  line-height: 1.7;
+}
 .markdown-preview :deep(pre) {
   background: #f6f8fa;
   padding: 12px;
@@ -91,5 +96,8 @@ async function insertImage() {
   background: #f6f8fa;
   padding: 2px 4px;
   border-radius: 4px;
+}
+.markdown-preview :deep(img) {
+  max-width: 100%;
 }
 </style>
