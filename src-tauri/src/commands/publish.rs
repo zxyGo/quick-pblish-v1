@@ -14,7 +14,7 @@ use crate::adapters::{adapter_for, PlatformId, PublishAdapter};
 use crate::error::{AppError, AppResult};
 use crate::publish::session::{OsKeyProvider, SessionStore};
 use crate::publish::sync::{run_batch, ImageLoader};
-use crate::publish::webview::{deliver_eval_result, EvalOutcome, PlatformBridge, TauriBridge};
+use crate::publish::webview::{PlatformBridge, TauriBridge};
 use crate::publish::{history, PlatformConnection, PlatformStatus, SyncJob, SyncRecord, SyncRequest};
 use crate::state::AppState;
 
@@ -149,7 +149,6 @@ pub async fn confirm_connection(
     .await
     .map_err(|e| AppError::Io(format!("probe join: {e}")))??;
 
-    eprintln!("[publish-probe] {} -> {probe}", platform.as_str());
     let logged_in = probe
         .get("loggedIn")
         .and_then(|b| b.as_bool())
@@ -173,17 +172,6 @@ pub async fn confirm_connection(
         .expect("accounts lock")
         .insert(platform, account);
     Ok(publish.connection(platform))
-}
-
-/// 注入 JS 执行完毕后由平台页面经 IPC 回传结果（与 webview.rs 的 eval 配对）。
-#[tauri::command]
-pub fn report_eval_result(
-    token: String,
-    ok: bool,
-    value: serde_json::Value,
-    error: Option<String>,
-) {
-    deliver_eval_result(&token, EvalOutcome { ok, value, error });
 }
 
 // ---- 发布/同步/历史命令（contracts/publish.md） ----

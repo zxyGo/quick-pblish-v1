@@ -5,32 +5,21 @@
 //! 生产实现封装 WebView2(Win) / WKWebView(macOS) / WebKitGTK(Linux) 差异；
 //! Linux 能力受限处显式返回降级错误，禁止静默失败。
 
-use std::collections::HashMap;
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use base64::Engine;
 
 use crate::adapters::PlatformId;
 use crate::error::{AppError, AppResult};
 
-/// 注入 JS 执行后由页面回传的结果（经 `report_eval_result` 命令送达）。
-pub struct EvalOutcome {
-    pub ok: bool,
-    pub value: serde_json::Value,
-    pub error: Option<String>,
-}
-
-/// token → 等待中的 eval 发送端。包装 JS 执行完通过 `report_eval_result` 命令带 token 回传。
-fn registry() -> &'static Mutex<HashMap<String, Sender<EvalOutcome>>> {
-    static R: OnceLock<Mutex<HashMap<String, Sender<EvalOutcome>>>> = OnceLock::new();
-    R.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// 由 `report_eval_result` 命令调用：把页面回传的结果送达等待中的 eval（FR：IPC 回传接线）。
-pub fn deliver_eval_result(token: &str, outcome: EvalOutcome) {
-    if let Some(tx) = registry().lock().expect("eval registry").remove(token) {
-        let _ = tx.send(outcome);
-    }
+/// 注入 JS 执行后写入 document.title 的结果（由 eval 轮询 title 解析）。
+#[derive(serde::Deserialize)]
+struct EvalOutcome {
+    ok: bool,
+    #[serde(default)]
+    value: serde_json::Value,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 fn next_token() -> String {
@@ -43,9 +32,21 @@ fn next_token() -> String {
     format!("{ts:x}{:x}", N.fetch_add(1, Ordering::Relaxed))
 }
 
-/// 包装 adapter 注入 JS：执行（await）其返回值，再经 `window.__TAURI__.core.invoke`
-/// 带 token 回传给 `report_eval_result` 命令。依赖 `app.withGlobalTauri = true`。
-fn wrap_js(token: &str, inner: &str) -> String {
+/// hash 回传协议前缀：`location.hash = __EVAL__<token>__<base64(json)>`。
+fn hash_marker(token: &str) -> String {
+    format!("__EVAL__{token}__")
+}
+
+/// 包装 adapter 注入 JS：执行（await）其返回值后，把结果 JSON（UTF-8 → base64）
+/// 写入 `location.hash`，以 `__EVAL__<token>__` 前缀标记，供 Rust 侧轮询 `webview.url()`
+/// 的 fragment 读取。
+///
+/// 为何走 hash 通道：登录复用的是远程平台页面（如 mp.weixin.qq.com），Tauri 出于安全
+/// 默认不向远程页面注入 IPC 桥（`window.__TAURI__` 不存在），无法用 invoke 回传；
+/// 原生窗口标题被 Tauri 锁定不随 `document.title` 变；而 `location.hash` 变更会即时反映到
+/// WebView2 的 Source，可由 `webview.url()` 读取，是不依赖 IPC、无刷新副作用的回传旁路。
+/// base64（btoa(UTF-8)）确保中文等非 ASCII 账号名安全通过 URL fragment。
+fn wrap_js_hash(token: &str, inner: &str) -> String {
     let token_js = serde_json::to_string(token).unwrap_or_else(|_| "\"\"".into());
     format!(
         r#"
@@ -53,10 +54,12 @@ fn wrap_js(token: &str, inner: &str) -> String {
       const __t = {token_js};
       const __send = (p) => {{
         try {{
-          window.__TAURI__.core.invoke('report_eval_result', {{
-            token: __t, ok: !!p.ok, value: p.value === undefined ? null : p.value, error: p.error || null
+          const json = JSON.stringify({{
+            ok: !!p.ok, value: p.value === undefined ? null : p.value, error: p.error || null
           }});
-        }} catch (e) {{ /* IPC 不可用时无能为力，eval 端会超时 */ }}
+          const b64 = btoa(unescape(encodeURIComponent(json)));
+          location.hash = "__EVAL__" + __t + "__" + b64;
+        }} catch (e) {{ /* 序列化失败也无能为力，eval 端会超时 */ }}
       }};
       try {{ const v = await ({inner}); __send({{ ok: true, value: v }}); }}
       catch (e) {{ __send({{ ok: false, error: String(e) }}); }}
@@ -126,16 +129,15 @@ mod tauri_impl {
 
     impl PlatformBridge for TauriBridge {
         fn open_login(&self, platform: PlatformId, login_url: &str) -> AppResult<()> {
-            eprintln!(
-                "[publish-login] open_login ENTER platform={} url={login_url}",
-                platform.as_str()
-            );
             let label = Self::label(platform);
             if let Some(w) = self.app.get_webview_window(&label) {
-                eprintln!("[publish-login] window already exists, focusing");
-                let _ = w.show();
-                let _ = w.set_focus();
-                return Ok(());
+                // 已有同标签窗口：尝试显示并聚焦复用。
+                // 注意：用户手动关闭后，标签可能短暂残留为陈旧句柄，对其 show()/set_focus()
+                // 会失败而非真正弹窗。此时清掉旧句柄并继续重建，确保再次点击「登录」能开新窗。
+                if w.show().is_ok() && w.set_focus().is_ok() {
+                    return Ok(());
+                }
+                let _ = w.close();
             }
             let url = login_url
                 .parse()
@@ -145,25 +147,12 @@ mod tauri_impl {
             // 因此本方法（及其调用方 connect_platform）必须运行在【非主线程】，
             // 否则事件循环被占死，build() 永不返回（空白窗口、整窗卡死）。
             // connect_platform 已改为 async 命令 → 在 worker 线程执行，此处可直接 build()。
-            eprintln!("[publish-login] building window (off main thread)");
             WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(url))
                 .title(format!("登录 - {}", platform.as_str()))
                 .inner_size(960.0, 720.0)
                 .initialization_script(POPUP_REDIRECT_JS)
-                .on_navigation(|u| {
-                    eprintln!("[publish-login] navigation -> {u}");
-                    true
-                })
-                .on_page_load(|_w, payload| {
-                    eprintln!(
-                        "[publish-login] page_load {:?} url={}",
-                        payload.event(),
-                        payload.url()
-                    );
-                })
                 .build()
                 .map_err(|e| AppError::Platform(format!("无法创建登录窗口: {e}")))?;
-            eprintln!("[publish-login] window BUILT ok");
             Ok(())
         }
 
@@ -176,29 +165,56 @@ mod tauri_impl {
                     AppError::Auth(format!("{} 未连接（窗口未打开），请先登录", platform.as_str()))
                 })?;
 
-            // token + 一次性通道：包装 JS 在页面执行后经 report_eval_result 命令带 token 回传。
             let token = next_token();
-            let (tx, rx) = channel::<EvalOutcome>();
-            registry()
-                .lock()
-                .expect("eval registry")
-                .insert(token.clone(), tx);
+            let marker = hash_marker(&token);
 
-            if let Err(e) = webview.eval(&wrap_js(&token, js)) {
-                registry().lock().expect("eval registry").remove(&token);
+            // 注入：页面执行 JS 后把结果（base64 JSON）写进 location.hash（带本次 token 前缀）。
+            if let Err(e) = webview.eval(&wrap_js_hash(&token, js)) {
                 return Err(AppError::Platform(format!("注入 JS 失败: {e}")));
             }
 
-            // 阻塞等待页面回传。注意：本方法只应在 spawn_blocking 线程内调用，避免阻塞主线程事件循环。
-            match rx.recv_timeout(Duration::from_secs(30)) {
-                Ok(outcome) if outcome.ok => Ok(outcome.value),
-                Ok(outcome) => Err(AppError::Platform(
-                    outcome.error.unwrap_or_else(|| "平台执行失败".into()),
-                )),
-                Err(_) => {
-                    registry().lock().expect("eval registry").remove(&token);
-                    Err(AppError::Network("WebView 执行超时（30s）".into()))
+            // 轮询 webview.url() 的 fragment 取回结果（不依赖远程页面 IPC）。
+            // 注意：本方法只应在 spawn_blocking 线程内调用。
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut last_frag = String::new();
+            let outcome = loop {
+                if let Ok(url) = webview.url() {
+                    let frag = url.fragment().unwrap_or("");
+                    if frag != last_frag {
+                        eprintln!("[publish-eval] fragment -> {frag}");
+                        last_frag = frag.to_string();
+                    }
+                    if let Some(b64) = url.fragment().and_then(|f| f.strip_prefix(&marker)) {
+                        let json = base64::engine::general_purpose::STANDARD
+                            .decode(b64)
+                            .map_err(|e| AppError::Platform(format!("回传 base64 解码失败: {e}")))
+                            .and_then(|bytes| {
+                                String::from_utf8(bytes).map_err(|e| {
+                                    AppError::Platform(format!("回传 UTF-8 解码失败: {e}"))
+                                })
+                            })?;
+                        match serde_json::from_str::<EvalOutcome>(&json) {
+                            Ok(o) => break o,
+                            Err(e) => {
+                                return Err(AppError::Platform(format!(
+                                    "解析平台返回失败: {e}; raw={json}"
+                                )))
+                            }
+                        }
+                    }
                 }
+                if Instant::now() >= deadline {
+                    return Err(AppError::Network("WebView 执行超时（30s）".into()));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            };
+
+            if outcome.ok {
+                Ok(outcome.value)
+            } else {
+                Err(AppError::Platform(
+                    outcome.error.unwrap_or_else(|| "平台执行失败".into()),
+                ))
             }
         }
 

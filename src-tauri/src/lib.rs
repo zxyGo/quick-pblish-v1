@@ -65,7 +65,6 @@ pub fn run() {
             commands::publish::confirm_connection,
             commands::publish::get_platform_status,
             commands::publish::disconnect_platform,
-            commands::publish::report_eval_result,
             commands::publish::sync_article,
             commands::publish::retry_sync,
             commands::publish::get_sync_history,

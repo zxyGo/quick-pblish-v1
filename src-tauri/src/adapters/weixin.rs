@@ -34,11 +34,19 @@ impl PublishAdapter for WeixinAdapter {
             const onBackend = /mp\.weixin\.qq\.com\/cgi-bin\//.test(href);
             const loggedIn = hasToken && onBackend;
             let account = null;
-            const el = document.querySelector(
-              '.weui-desktop-account__nickname, .account_nickname, .weui-desktop-account__info strong'
-            );
-            if (el && el.textContent) account = el.textContent.trim();
-            return { loggedIn, account, href };
+            // 优先读公众号后台全局数据（最稳）。
+            try {
+              const d = window.wx && window.wx.commonData && window.wx.commonData.data;
+              if (d) account = d.nick_name || d.user_name || d.nickName || null;
+            } catch (e) {}
+            // 兜底：从页面昵称元素读取。
+            if (!account) {
+              const el = document.querySelector(
+                '.weui-desktop-account__nickname, .account_nickname, .weui-desktop-account__info strong'
+              );
+              if (el && el.textContent) account = el.textContent.trim();
+            }
+            return { loggedIn, account: account || null, href };
           } catch (e) { return { loggedIn: false, account: null, error: String(e) }; }
         })()
         "#
