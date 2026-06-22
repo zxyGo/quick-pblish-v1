@@ -1,5 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use base64::Engine;
 use tauri::State;
 
 use crate::domain::{ImportedAsset, IndexStatus};
@@ -50,6 +51,47 @@ pub(crate) fn import_asset_core(state: &AppState, source_path: &str) -> AppResul
     })
 }
 
+/// 按扩展名推断图片 MIME（仅覆盖正文常见图片类型，未知回退 octet-stream）。
+fn guess_image_mime(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("bmp") => "image/bmp",
+        Some("avif") => "image/avif",
+        _ => "application/octet-stream",
+    }
+}
+
+/// 读取工作目录内的本地图片，返回可直接用于 `<img src>` 的 base64 data URL。
+/// 供预览渲染解析正文里的相对图片路径（WebView 无法直接访问本地文件系统路径）。
+/// `rel_path` 为相对工作目录根的路径；做归一化并校验不越出工作目录（防目录穿越）。
+pub(crate) fn read_asset_data_url_core(state: &AppState, rel_path: &str) -> AppResult<String> {
+    let root = state.current_root()?;
+    let normalized = rel_path.replace('\\', "/");
+    let normalized = normalized.trim_start_matches("./");
+    let path = root.join(normalized);
+
+    // 防目录穿越：解析后的真实路径必须仍在工作目录根内。
+    let canonical_root = std::fs::canonicalize(&root)?;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|_| AppError::NotFound(format!("本地图片不存在: {rel_path}")))?;
+    if !canonical.starts_with(&canonical_root) {
+        return Err(AppError::Invalid("图片路径越出工作目录".into()));
+    }
+
+    let bytes = std::fs::read(&canonical)?;
+    let mime = guess_image_mime(&canonical);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
 pub(crate) fn rebuild_index_core(state: &AppState) -> AppResult<IndexStatus> {
     let root = state.current_root()?;
     let conn = state.db.lock().expect("db lock");
@@ -68,6 +110,11 @@ pub(crate) fn index_status_core(state: &AppState) -> AppResult<IndexStatus> {
 #[tauri::command]
 pub fn import_asset(state: State<AppState>, source_path: String) -> AppResult<ImportedAsset> {
     import_asset_core(state.inner(), &source_path)
+}
+
+#[tauri::command]
+pub fn read_asset_data_url(state: State<AppState>, rel_path: String) -> AppResult<String> {
+    read_asset_data_url_core(state.inner(), &rel_path)
 }
 
 #[tauri::command]

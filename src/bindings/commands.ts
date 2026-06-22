@@ -67,6 +67,9 @@ export const api = {
   // asset & index
   importAsset: (sourcePath: string) =>
     invoke<ImportedAsset>("import_asset", { sourcePath }),
+  /** 读取工作目录内本地图片为 base64 data URL，供预览渲染本地相对路径图片。 */
+  readAssetDataUrl: (relPath: string) =>
+    invoke<string>("read_asset_data_url", { relPath }),
   rebuildIndex: () => invoke<IndexStatus>("rebuild_index"),
   getIndexStatus: () => invoke<IndexStatus>("get_index_status"),
 

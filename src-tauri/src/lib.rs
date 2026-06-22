@@ -57,6 +57,7 @@ pub fn run() {
             commands::file_tree::move_path,
             commands::file_tree::delete_path,
             commands::asset::import_asset,
+            commands::asset::read_asset_data_url,
             commands::asset::rebuild_index,
             commands::asset::get_index_status,
             // 002-multi-platform-publish

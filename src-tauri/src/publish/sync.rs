@@ -76,7 +76,9 @@ fn try_run(
         let js = adapter.upload_image_js(&b64, &filename);
         let res = bridge.eval(platform, &js)?;
         let url = parse_upload(&res).map_err(|raw| adapter.map_error(&raw))?;
-        html = replace_once(&html, &src, &url);
+        // src 已去重，故把该图的**所有**引用都替换为上传后的 URL（同图多处引用时避免
+        // 漏替导致平台端残留本地路径坏图）。
+        html = html.replace(&src, &url);
     }
 
     // 仅新建草稿，不发布（FR-008/016a）。经 adapter 编排：知乎/掘金走默认单步注入，
@@ -156,10 +158,6 @@ fn extract_img_srcs(html: &str) -> Vec<String> {
         i = start;
     }
     out
-}
-
-fn replace_once(html: &str, from: &str, to: &str) -> String {
-    html.replacen(from, to, 1)
 }
 
 #[cfg(test)]

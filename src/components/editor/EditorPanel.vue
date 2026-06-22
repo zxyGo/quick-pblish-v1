@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { MessagePlugin } from "tdesign-vue-next";
 import { applyTheme, initRenderer } from "@md/core";
@@ -7,6 +7,8 @@ import { modifyHtmlContent } from "@md/core/utils";
 import { defaultStyleConfig } from "@md/shared/configs/style";
 import { api } from "@/bindings/commands";
 import { toAppError } from "@/services/error";
+import { useWorkspaceStore } from "@/stores/workspace";
+import { useEditorStore } from "@/stores/editor";
 
 /**
  * Markdown 编辑器 + 样式预览组件。
@@ -39,6 +41,56 @@ const style = reactive({
   fontSize: defaultStyleConfig.fontSize as string,
 });
 
+const workspace = useWorkspaceStore();
+const editorStore = useEditorStore();
+
+// 当前文章所在目录（相对工作目录根），正文里的相对图片路径相对于它解析。
+const articleDir = computed(() => {
+  const rel = (editorStore.open?.relativePath ?? "").replace(/\\/g, "/");
+  const slash = rel.lastIndexOf("/");
+  return slash >= 0 ? rel.slice(0, slash) : "";
+});
+
+// 正文原始 src → base64 data URL 缓存（避免每次渲染重复读盘）。
+const imageUrls = ref<Record<string, string>>({});
+
+/** 远程/内联/绝对路径的 src 不需要解析为本地文件。 */
+function isLocalSrc(src: string): boolean {
+  return !/^(https?:|data:|blob:|asset:|tauri:|\/\/|\/|[a-zA-Z]:)/i.test(src);
+}
+
+/** 提取 HTML 中所有 `<img src="...">` 的 src。 */
+function extractImgSrcs(html: string): string[] {
+  const out: string[] = [];
+  const re = /<img\b[^>]*?\bsrc="([^"]+)"/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) out.push(m[1]);
+  return out;
+}
+
+/**
+ * 预览运行在 Tauri WebView 中，页面 base URL 不是工作目录，正文里的相对图片路径
+ * （如 `assets/x.png`）无法直接加载。这里让后端读取图片字节、返回 base64 data URL
+ * （与参考实现「读字节喂给 WebView」同思路，且不依赖 asset 协议/CSP 配置），结果缓存。
+ */
+async function resolveLocalImages(html: string): Promise<void> {
+  if (!workspace.current?.path) return;
+  const dir = articleDir.value;
+  const next = { ...imageUrls.value };
+  let changed = false;
+  for (const src of new Set(extractImgSrcs(html))) {
+    if (!isLocalSrc(src) || next[src]) continue;
+    const relPath = (dir ? `${dir}/${src}` : src).replace(/^\.\//, "");
+    try {
+      next[src] = await api.readAssetDataUrl(relPath);
+      changed = true;
+    } catch {
+      // 图片缺失等：跳过，预览保持裂图即可（不打断编辑）。
+    }
+  }
+  if (changed) imageUrls.value = next;
+}
+
 // 主题注入是否就绪——注入后触发首屏预览重算。
 const themeReady = ref(false);
 
@@ -58,7 +110,8 @@ async function applyCurrentTheme() {
 
 onMounted(applyCurrentTheme);
 
-const rendered = computed(() => {
+// doocs/md 渲染结果（图片仍是原始相对路径）。
+const rawRendered = computed(() => {
   // 依赖 themeReady：主题注入完成后让预览重算一次。
   void themeReady.value;
   // 每次渲染前重置渲染器内部状态（脚注计数等），避免跨次累积。
@@ -71,6 +124,23 @@ const rendered = computed(() => {
     themeMode: "light",
   });
   return modifyHtmlContent(props.modelValue || "", renderer);
+});
+
+// 渲染产出变化时按需读取本地图片（已缓存的不重复读）。
+watch(rawRendered, (html) => void resolveLocalImages(html), { immediate: true });
+// 切换文章（base 目录变化）时清空缓存，避免跨文章误用相对路径。
+watch(articleDir, () => {
+  imageUrls.value = {};
+});
+
+// 最终预览：把本地图片 src 替换为已解析的 data URL（未解析的保持原样）。
+const rendered = computed(() => {
+  const map = imageUrls.value;
+  return rawRendered.value.replace(
+    /(<img\b[^>]*?\bsrc=")([^"]+)(")/gi,
+    (full, prefix: string, src: string, suffix: string) =>
+      map[src] ? `${prefix}${map[src]}${suffix}` : full,
+  );
 });
 
 const textarea = ref<HTMLTextAreaElement | null>(null);
