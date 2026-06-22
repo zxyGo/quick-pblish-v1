@@ -117,6 +117,8 @@ export interface SyncJob {
 export interface SyncRequest {
   articlePath: string;
   renderedHtml: string;
+  /** 文章 Markdown 正文（与 renderedHtml 同源）；知乎/掘金走编辑器 UI 自动化时以此为内容源。 */
+  markdown: string;
   title: string;
   /** 文章摘要；留空时后端从正文文本自动兜底提取。 */
   digest?: string | null;

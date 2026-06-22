@@ -81,6 +81,10 @@ impl SyncJob {
 pub struct SyncRequest {
     pub article_path: String,
     pub rendered_html: String,
+    /// 文章 Markdown 正文（与 `rendered_html` 同源，前端编辑器原文）。
+    /// 知乎/掘金走编辑器 UI 自动化时以此为内容源；微信走 HTML 不消费。留空则这些平台无正文。
+    #[serde(default)]
+    pub markdown: String,
     pub title: String,
     /// 文章摘要（FR-009a）。留空（None / 空串）时由编排从正文文本自动兜底提取。
     #[serde(default)]

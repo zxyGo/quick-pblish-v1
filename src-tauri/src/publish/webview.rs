@@ -89,7 +89,22 @@ pub trait PlatformBridge: Send + Sync {
     fn navigate(&self, platform: PlatformId, url: &str) -> AppResult<()>;
 
     /// 在该平台 WebView 上下文执行 JS 并取回 JSON 结果（约定见各 adapter 注释）。
-    fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value>;
+    /// 默认 30s 预算，适合 probe / 单图上传等快脚本。
+    fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value> {
+        self.eval_with_timeout(platform, js, Duration::from_secs(30))
+    }
+
+    /// 同 [`PlatformBridge::eval`]，但显式指定回传轮询超时。
+    ///
+    /// 编辑器 UI 自动化（如知乎「写文章」页注入填充：等编辑器挂载 + 等待解析弹窗 + 点确认）
+    /// 脚本自身耗时即接近 30s，重型 SPA 慢加载时会顶满；这类步骤须用更宽预算（60s+），
+    /// 否则 `eval` 会先于脚本返回触发「WebView 执行超时」。
+    fn eval_with_timeout(
+        &self,
+        platform: PlatformId,
+        js: &str,
+        timeout: Duration,
+    ) -> AppResult<serde_json::Value>;
 
     /// 关闭该平台 WebView（断开/结束同步时）。
     fn close(&self, platform: PlatformId) -> AppResult<()>;
@@ -162,6 +177,11 @@ mod tauri_impl {
             // 因此本方法（及其调用方 connect_platform）必须运行在【非主线程】，
             // 否则事件循环被占死，build() 永不返回（空白窗口、整窗卡死）。
             // connect_platform 已改为 async 命令 → 在 worker 线程执行，此处可直接 build()。
+            //
+            // 注意：曾尝试用 `additional_browser_args(--disable-gpu ...)` 缓解知乎写文章页的
+            // 渲染进程 OOM，但在本机 WebView2 上该 args 反而导致渲染器初始化失败、原生窗口
+            // 一闪即被销毁（"新窗口一闪而消失"）。故移除自定义 browser args，回到 WebView2 默认
+            // 渲染；OOM 另谋他法（如降载/分步注入），不再靠 GPU flag。
             WebviewWindowBuilder::new(&self.app, &label, WebviewUrl::External(url))
                 .title(format!("登录 - {}", platform.as_str()))
                 .inner_size(960.0, 720.0)
@@ -214,6 +234,12 @@ mod tauri_impl {
                 .navigate(parsed)
                 .map_err(|e| AppError::Platform(format!("WebView 导航失败: {e}")))?;
 
+            // 把窗口显示并聚焦到前台再注入：知乎 DraftJS 等富文本编辑器在【后台/未聚焦】窗口里
+            // 不处理 `focus()`/selection/合成 `paste`——标题能用原生 setter 写入，但正文粘贴会被
+            // 静默丢弃（表现为「标题有、正文空」）。对应 cose 扩展同步前的 `tabs.update({active:true})`。
+            let _ = webview.show();
+            let _ = webview.set_focus();
+
             // 导航是异步的：先给它时间真正切走旧页，避免立刻在旧页面上误判 readyState=complete。
             std::thread::sleep(Duration::from_millis(800));
 
@@ -236,7 +262,12 @@ mod tauri_impl {
             }
         }
 
-        fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value> {
+        fn eval_with_timeout(
+            &self,
+            platform: PlatformId,
+            js: &str,
+            timeout: Duration,
+        ) -> AppResult<serde_json::Value> {
             // 该平台 WebView 必须已打开（连接时创建），否则无登录态上下文可复用。
             let webview = self
                 .app
@@ -255,7 +286,7 @@ mod tauri_impl {
 
             // 轮询 webview.url() 的 fragment 取回结果（不依赖远程页面 IPC）。
             // 注意：本方法只应在 spawn_blocking 线程内调用。
-            let deadline = Instant::now() + Duration::from_secs(30);
+            let deadline = Instant::now() + timeout;
             let mut last_frag = String::new();
             let outcome = loop {
                 if let Ok(url) = webview.url() {
@@ -284,7 +315,10 @@ mod tauri_impl {
                     }
                 }
                 if Instant::now() >= deadline {
-                    return Err(AppError::Network("WebView 执行超时（30s）".into()));
+                    return Err(AppError::Network(format!(
+                        "WebView 执行超时（{}s）",
+                        timeout.as_secs()
+                    )));
                 }
                 std::thread::sleep(Duration::from_millis(100));
             };
@@ -360,7 +394,12 @@ pub mod mock {
             Ok(())
         }
 
-        fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value> {
+        fn eval_with_timeout(
+            &self,
+            platform: PlatformId,
+            js: &str,
+            _timeout: Duration,
+        ) -> AppResult<serde_json::Value> {
             let prefix: String = js.trim().chars().take_while(|c| *c != ':').collect();
             let key = format!("{}:{}", platform.as_str(), prefix.trim());
             self.responses

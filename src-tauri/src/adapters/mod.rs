@@ -16,15 +16,21 @@ use crate::publish::webview::PlatformBridge;
 /// 新建草稿结果：`(draft_id, url)`，二者均可为空（如 UI 自动化方案拿不到 appMsgId）。
 pub type DraftOutcome = (Option<String>, Option<String>);
 
-/// 草稿元信息（摘要 + 封面），平台无关。由 [`crate::publish::sync`] 编排在调用
-/// [`PublishAdapter::save_draft`] 前构造：摘要已做兜底，封面已解析为可上传的 base64。
-/// 当前仅微信公众号适配器消费（知乎/掘金字段语义不同，暂忽略，见 plan 平台范围）。
+/// 草稿元信息（摘要 + 封面 + Markdown 正文），平台无关。由 [`crate::publish::sync`] 编排在
+/// 调用 [`PublishAdapter::save_draft`] 前构造：摘要已做兜底，封面已解析为可上传的 base64，
+/// `markdown` 中的本地图片已替换为平台 URL。
+///
+/// 各平台按需消费：微信用 `digest`/`cover`（正文走 HTML）；知乎/掘金走编辑器 UI 自动化，
+/// 直接消费 `markdown`（掘金 ByteMD/CodeMirror、知乎粘贴触发 Markdown 解析，均以 Markdown 为源）。
 #[derive(Debug, Clone, Default)]
 pub struct DraftMeta {
     /// 文章摘要（已兜底）。空串表示无摘要。
     pub digest: String,
     /// 封面图：`(文件名, base64)`。`None` 表示无封面（远程图/无首图/加载失败）。
     pub cover: Option<(String, String)>,
+    /// 文章 Markdown 正文（本地图片引用已替换为平台 URL）。空串表示无 Markdown 可用。
+    /// 供以 Markdown 编辑器为载体的平台（知乎/掘金）消费。
+    pub markdown: String,
 }
 
 /// 受支持平台标识（MVP：公众号 / 知乎 / 掘金）。序列化为小写串以匹配前端契约。

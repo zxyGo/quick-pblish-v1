@@ -8,6 +8,7 @@ import { usePublishStore } from "@/stores/publish";
 import { PLATFORM_LABELS, type PlatformId } from "@/bindings/types";
 import { toAppError } from "@/services/error";
 import SyncResultList from "./SyncResultList.vue";
+import ImageHostSettings from "./ImageHostSettings.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -22,6 +23,7 @@ const selected = ref<PlatformId[]>([]);
 // 摘要/封面：留空时后端自动兜底（摘要取正文文本、封面取正文首图）。目前仅微信公众号消费。
 const digest = ref("");
 const cover = ref("");
+const imageHostVisible = ref(false);
 
 const connectedPlatforms = computed(() =>
   store.platforms.filter((p) => p.status === "Connected"),
@@ -133,7 +135,10 @@ async function doSync() {
         </div>
       </div>
 
-      <div class="flex justify-end">
+      <div class="flex justify-between items-center">
+        <t-button theme="default" variant="text" @click="imageHostVisible = true">
+          图床设置
+        </t-button>
         <t-button :loading="store.syncing" @click="doSync">一键同步</t-button>
       </div>
 
@@ -145,5 +150,7 @@ async function doSync() {
         :cover="cover"
       />
     </div>
+
+    <ImageHostSettings v-model:visible="imageHostVisible" />
   </t-dialog>
 </template>

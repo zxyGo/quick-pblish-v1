@@ -90,6 +90,7 @@ export const api = {
   retrySync: (
     articlePath: string,
     renderedHtml: string,
+    markdown: string,
     title: string,
     digest: string | null,
     cover: string | null,
@@ -98,6 +99,7 @@ export const api = {
     invoke<SyncJob>("retry_sync", {
       articlePath,
       renderedHtml,
+      markdown,
       title,
       digest,
       cover,

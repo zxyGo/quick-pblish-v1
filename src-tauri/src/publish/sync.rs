@@ -25,6 +25,7 @@ pub fn run_job(
     article_path: &str,
     title: &str,
     rendered_html: &str,
+    markdown: &str,
     digest: Option<&str>,
     cover: Option<&str>,
 ) -> SyncJob {
@@ -32,7 +33,7 @@ pub fn run_job(
     job.status = SyncStatus::Running;
     job.started_at = Some(Utc::now().to_rfc3339());
 
-    match try_run(bridge, adapter, loader, title, rendered_html, digest, cover) {
+    match try_run(bridge, adapter, loader, title, rendered_html, markdown, digest, cover) {
         Ok(draft) => {
             job.status = SyncStatus::Success;
             job.draft_ref = Some(draft);
@@ -53,6 +54,7 @@ fn try_run(
     loader: &dyn ImageLoader,
     title: &str,
     rendered_html: &str,
+    markdown: &str,
     digest: Option<&str>,
     cover: Option<&str>,
 ) -> AppResult<DraftRef> {
@@ -73,6 +75,9 @@ fn try_run(
     }
 
     let mut html = adapter.transform_html(rendered_html);
+    // Markdown 正文与 HTML 同源（前端 markdownBody），其本地图片引用路径字符串与 HTML 的
+    // `<img src>` 一致，故可与 HTML 共用同一份 src→平台 URL 替换，无需单独解析 Markdown 图片语法。
+    let mut md = markdown.to_string();
 
     // 封面源在「上传前」确定：用户显式指定优先，否则取正文首图。须在替换前取，
     // 否则首图 src 已被换成平台 URL，拿不到本地字节供封面单独上传。
@@ -92,8 +97,9 @@ fn try_run(
         let res = bridge.eval(platform, &js)?;
         let url = parse_upload(&res).map_err(|raw| adapter.map_error(&raw))?;
         // src 已去重，故把该图的**所有**引用都替换为上传后的 URL（同图多处引用时避免
-        // 漏替导致平台端残留本地路径坏图）。
+        // 漏替导致平台端残留本地路径坏图）。HTML 与 Markdown 两路正文同步替换。
         html = html.replace(&src, &url);
+        md = md.replace(&src, &url);
     }
 
     // 摘要兜底：用户显式指定优先，否则从最终 HTML 文本提取前若干字（微信摘要上限 120）。
@@ -116,6 +122,7 @@ fn try_run(
     let meta = DraftMeta {
         digest,
         cover: cover_bytes,
+        markdown: md,
     };
 
     // 仅新建草稿，不发布（FR-008/016a）。经 adapter 编排：知乎/掘金走默认单步注入，
@@ -163,6 +170,7 @@ pub fn run_batch(
             &req.article_path,
             &req.title,
             &req.rendered_html,
+            &req.markdown,
             req.digest.as_deref(),
             req.cover.as_deref(),
         );
@@ -281,6 +289,7 @@ mod tests {
             "a.md",
             "标题",
             "<p>hi</p>",
+            "",
             None,
             None,
         );
@@ -302,6 +311,7 @@ mod tests {
             "a.md",
             "标题",
             r#"<img src="assets/a.png">"#,
+            "",
             None,
             None,
         );
@@ -322,6 +332,7 @@ mod tests {
             "a.md",
             "标题",
             r#"<img src="assets/a.png">"#,
+            "",
             None,
             None,
         );
@@ -337,6 +348,7 @@ mod tests {
         let req = SyncRequest {
             article_path: "a.md".into(),
             rendered_html: "<p>x</p>".into(),
+            markdown: "x".into(),
             title: "t".into(),
             digest: None,
             cover: None,
@@ -360,8 +372,8 @@ mod tests {
         let bridge = MockBridge::new();
         bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1"}));
-        let j1 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", None, None);
-        let j2 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", None, None);
+        let j1 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", "", None, None);
+        let j2 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", "", None, None);
         assert_ne!(j1.id, j2.id);
     }
 }

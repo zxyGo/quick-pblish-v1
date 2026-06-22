@@ -223,6 +223,7 @@ pub async fn retry_sync(
     publish: State<'_, PublishState>,
     article_path: String,
     rendered_html: String,
+    markdown: String,
     title: String,
     digest: Option<String>,
     cover: Option<String>,
@@ -231,6 +232,7 @@ pub async fn retry_sync(
     let req = SyncRequest {
         article_path,
         rendered_html,
+        markdown,
         title,
         digest,
         cover,

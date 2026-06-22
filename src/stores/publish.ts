@@ -6,6 +6,7 @@ import { ref } from "vue";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { api, onSyncProgress } from "@/bindings/commands";
 import { renderArticleHtml } from "@/services/render";
+import { externalizeLocalImages } from "@/services/imageHost";
 import type {
   PlatformConnection,
   PlatformId,
@@ -80,10 +81,13 @@ export const usePublishStore = defineStore("publish", () => {
     // 重置本批次结果
     jobs.value = {} as Record<PlatformId, SyncJob>;
     try {
-      const renderedHtml = await renderArticleHtml(markdownBody);
+      // 先把正文里的本地图片传到图床换成外链（md+cose 原路：之后各平台粘贴 Markdown 时自动转存）。
+      const externalizedMd = await externalizeLocalImages(markdownBody);
+      const renderedHtml = await renderArticleHtml(externalizedMd);
       const result = await api.syncArticle({
         articlePath,
         renderedHtml,
+        markdown: externalizedMd,
         title,
         digest: digest ?? null,
         cover: cover ?? null,
@@ -107,10 +111,12 @@ export const usePublishStore = defineStore("publish", () => {
     digest?: string | null,
     cover?: string | null,
   ): Promise<SyncJob> {
-    const renderedHtml = await renderArticleHtml(markdownBody);
+    const externalizedMd = await externalizeLocalImages(markdownBody);
+    const renderedHtml = await renderArticleHtml(externalizedMd);
     const job = await api.retrySync(
       articlePath,
       renderedHtml,
+      externalizedMd,
       title,
       digest ?? null,
       cover ?? null,
