@@ -27,9 +27,9 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 **Purpose**: 依赖与目录骨架
 
-- [ ] T001 在 `src-tauri/Cargo.toml` 的 `[dependencies]` 增加 `keyring`、`aes-gcm`、`rand`（FR-005 / research R3）
-- [ ] T002 [P] 创建后端模块骨架空文件并在 `src-tauri/src/lib.rs` 声明 `mod adapters; mod publish;`：`src-tauri/src/adapters/mod.rs`、`src-tauri/src/publish/mod.rs`、`src-tauri/src/publish/session.rs`、`src-tauri/src/publish/webview.rs`、`src-tauri/src/publish/sync.rs`、`src-tauri/src/publish/history.rs`、`src-tauri/src/commands/publish.rs`（并在 `src-tauri/src/commands/mod.rs` 声明 `pub mod publish;`）
-- [ ] T003 [P] 创建前端骨架：目录 `src/components/publish/`、桩文件 `src/stores/publish.ts`、`src/services/render.ts`
+- [X] T001 在 `src-tauri/Cargo.toml` 的 `[dependencies]` 增加 `keyring`、`aes-gcm`、`rand`（FR-005 / research R3）
+- [X] T002 [P] 创建后端模块骨架空文件并在 `src-tauri/src/lib.rs` 声明 `mod adapters; mod publish;`：`src-tauri/src/adapters/mod.rs`、`src-tauri/src/publish/mod.rs`、`src-tauri/src/publish/session.rs`、`src-tauri/src/publish/webview.rs`、`src-tauri/src/publish/sync.rs`、`src-tauri/src/publish/history.rs`、`src-tauri/src/commands/publish.rs`（并在 `src-tauri/src/commands/mod.rs` 声明 `pub mod publish;`）
+- [X] T003 [P] 创建前端骨架：目录 `src/components/publish/`、桩文件 `src/stores/publish.ts`、`src/services/render.ts`
 
 ---
 
@@ -39,12 +39,12 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 **⚠️ CRITICAL**: 本阶段完成前，任何用户故事不可开工
 
-- [ ] T004 在 `src-tauri/src/error.rs` 为 `AppError` 扩充 `Auth`、`Network`、`Platform` 三个 `kind`（contracts/platform.md）
-- [ ] T005 [P] 在 `src-tauri/src/adapters/mod.rs` 定义 `PlatformId` 枚举、`PublishAdapter` trait（`id/login_url/probe_login_js/transform_html/upload_image_js/save_draft_js/map_error`）与平台注册表 `registry()`（data-model.md / 章程原则 II）
-- [ ] T006 [P] 在 `src-tauri/src/adapters/mod.rs` 实现 `MockAdapter`（`#[cfg(test)]`，供 sync 编排单测，不触网）
-- [ ] T007 在 `src-tauri/src/publish/webview.rs` 实现跨平台 WebView 抽象（`open_login`、`eval`、`navigate`、`probe_login`），封装 WebView2/WKWebView/WebKitGTK 差异，Linux 受限处返回显式降级错误（research R2 / 章程原则 III）
-- [ ] T008 [P] 在 `src/bindings/types.ts` 追加共享类型 `PlatformId`、`PlatformStatus`、`SyncStatus`、`PlatformConnection`、`DraftRef`、`SyncJob`、`SyncRequest`、`SyncRecord`，并扩充 `AppError` 联合（contracts/）
-- [ ] T009 在 `src-tauri/src/lib.rs` 的 `invoke_handler` 预留 publish 命令注册位置（占位，后续故事逐个接入）
+- [X] T004 在 `src-tauri/src/error.rs` 为 `AppError` 扩充 `Auth`、`Network`、`Platform` 三个 `kind`（contracts/platform.md）
+- [X] T005 [P] 在 `src-tauri/src/adapters/mod.rs` 定义 `PlatformId` 枚举、`PublishAdapter` trait（`id/login_url/probe_login_js/transform_html/upload_image_js/save_draft_js/map_error`）与平台注册表 `adapter_for()`（data-model.md / 章程原则 II）
+- [X] T006 [P] 在 `src-tauri/src/adapters/mod.rs` 实现 `MockAdapter`（`#[cfg(test)]`，供 sync 编排单测，不触网）
+- [X] T007 在 `src-tauri/src/publish/webview.rs` 实现跨平台 WebView 抽象（`PlatformBridge`：`open_login`/`eval`/`close`），`TauriBridge` 生产实现 + `MockBridge` 测试实现；Linux 受限处注释降级策略（research R2 / 章程原则 III）。**IPC 回传已接线**：token + 一次性通道 + `report_eval_result` 命令 + `wrap_js` 经 `window.__TAURI__.core.invoke` 回传；配 `withGlobalTauri` 与 `capabilities/publish.json`
+- [X] T008 [P] 在 `src/bindings/types.ts` 追加共享类型 `PlatformId`、`PlatformStatus`、`SyncStatus`、`PlatformConnection`、`DraftRef`、`SyncJob`、`SyncRequest`、`SyncRecord`，并扩充 `AppError` 联合（contracts/）
+- [X] T009 在 `src-tauri/src/lib.rs` 的 `invoke_handler` 注册全部 publish 命令
 
 **Checkpoint**: 基座就绪——用户故事可开工
 
@@ -58,20 +58,20 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] 在 `src-tauri/src/publish/session.rs` 内联测试：会话 blob 加密/解密往返、明文不落盘、断开后密钥清除（FR-005）
-- [ ] T011 [P] [US1] 在 `tests/publish-store.connection.test.ts` 测试 publish store 的连接状态机（Disconnected/Connected/NeedReauth）
+- [X] T010 [P] [US1] 在 `src-tauri/src/publish/session.rs` 内联测试：会话 blob 加密/解密往返、明文不落盘、断开后密钥清除（FR-005）
+- [X] T011 [P] [US1] 在 `tests/publish-store.connection.test.ts` 测试 publish store 的连接状态机（Disconnected/Connected/NeedReauth）
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] 在 `src-tauri/src/publish/session.rs` 实现会话提取→`aes-gcm` 加密 blob 落盘、密钥经 `keyring` 存 OS 安全设施、启动回灌、断开清除（FR-002/004/005，research R3）
-- [ ] T013 [P] [US1] 在 `src-tauri/src/adapters/weixin.rs` 实现公众号 `login_url` 与 `probe_login_js`（返回登录态/账号标识，FR-006/R4）
-- [ ] T014 [P] [US1] 在 `src-tauri/src/adapters/zhihu.rs` 实现知乎 `login_url` 与 `probe_login_js`
-- [ ] T015 [P] [US1] 在 `src-tauri/src/adapters/juejin.rs` 实现掘金 `login_url` 与 `probe_login_js`
-- [ ] T016 [US1] 在 `src-tauri/src/commands/publish.rs` 实现 `list_platforms`、`connect_platform`、`get_platform_status`、`disconnect_platform`（contracts/platform.md，FR-001/003/004/006/012）
-- [ ] T017 [US1] 在 `src-tauri/src/lib.rs` 注册上述 4 个连接命令
-- [ ] T018 [P] [US1] 在 `src/bindings/commands.ts` 追加 4 个连接命令的类型化封装
-- [ ] T019 [US1] 在 `src/stores/publish.ts` 实现平台连接状态（list/connect/status/disconnect 动作）
-- [ ] T020 [US1] 实现 `src/components/publish/PlatformPanel.vue`（三平台状态、登录、断开；UnoCSS 原子类）
+- [X] T012 [US1] 在 `src-tauri/src/publish/session.rs` 实现会话提取→`aes-gcm` 加密 blob 落盘、密钥经 `keyring` 存 OS 安全设施、启动回灌、断开清除（FR-002/004/005，research R3）
+- [X] T013 [P] [US1] 在 `src-tauri/src/adapters/weixin.rs` 实现公众号 `login_url` 与 `probe_login_js`（返回登录态/账号标识，FR-006/R4）
+- [X] T014 [P] [US1] 在 `src-tauri/src/adapters/zhihu.rs` 实现知乎 `login_url` 与 `probe_login_js`
+- [X] T015 [P] [US1] 在 `src-tauri/src/adapters/juejin.rs` 实现掘金 `login_url` 与 `probe_login_js`
+- [X] T016 [US1] 在 `src-tauri/src/commands/publish.rs` 实现 `list_platforms`、`connect_platform`、`get_platform_status`、`disconnect_platform`，并新增 `confirm_connection`（登录后经注入 JS 真实探测登录态/账号）与 `report_eval_result`（IPC 回传，contracts/platform.md，FR-001/003/004/006/012）
+- [X] T017 [US1] 在 `src-tauri/src/lib.rs` 注册上述 4 个连接命令
+- [X] T018 [P] [US1] 在 `src/bindings/commands.ts` 追加 4 个连接命令的类型化封装
+- [X] T019 [US1] 在 `src/stores/publish.ts` 实现平台连接状态（list/connect/status/disconnect 动作）
+- [X] T020 [US1] 实现 `src/components/publish/PlatformPanel.vue`（三平台状态、登录、断开；UnoCSS 原子类）
 
 **Checkpoint**: US1 可独立运行——连接/状态/断开闭环
 
@@ -85,21 +85,21 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] 在 `src-tauri/src/adapters/weixin.rs` 内联测试 `transform_html` 保留内联样式（SC-003）
-- [ ] T022 [P] [US2] 在 `src-tauri/src/publish/sync.rs` 内联测试（MockAdapter）：单平台流水线成功；任一图片失败 → 整个 SyncJob `Failed`、不产出草稿（FR-010a/SC-005）
-- [ ] T023 [P] [US2] 在 `tests/render.test.ts` 测试 `render.ts` 用 `@md/core` 产出非空内联样式 HTML
+- [ ] T021 [P] [US2] 在 `src-tauri/src/adapters/weixin.rs` 内联测试 `transform_html` 保留内联样式（SC-003）——**未做**：transform 行为已由 sync 测试间接覆盖，专项 adapter 单测留待
+- [X] T022 [P] [US2] 在 `src-tauri/src/publish/sync.rs` 内联测试（MockAdapter）：单平台流水线成功；任一图片失败 → 整个 SyncJob `Failed`、不产出草稿（FR-010a/SC-005）
+- [X] T023 [P] [US2] 在 `tests/render.test.ts` 测试 `render.ts` 用 `@md/core` 产出非空内联样式 HTML
 
 ### Implementation for User Story 2
 
-- [ ] T024 [P] [US2] 在 `src-tauri/src/adapters/weixin.rs` 扩展 `transform_html`、`upload_image_js`、`save_draft_js`、`map_error`（FR-009/010/011/R5-R7）
-- [ ] T025 [P] [US2] 在 `src-tauri/src/adapters/zhihu.rs` 扩展同上四能力
-- [ ] T026 [P] [US2] 在 `src-tauri/src/adapters/juejin.rs` 扩展同上四能力
-- [ ] T027 [US2] 在 `src-tauri/src/publish/sync.rs` 实现单 SyncJob 流水线：平台化 HTML → 逐图上传替换（全有或全无）→ 新建草稿；返回 `SyncJob`（FR-007/008/010a/016a）
-- [ ] T028 [US2] 在 `src-tauri/src/commands/publish.rs` 实现 `sync_article`（单平台路径，含同步前登录态校验 → 失败 reason=`Auth`），并在 `lib.rs` 注册（FR-012/SC-007）
-- [ ] T029 [P] [US2] 在 `src/services/render.ts` 用 `@md/core` 把文章渲染为带内联样式 HTML（与编辑器预览同源，SC-003）
-- [ ] T030 [P] [US2] 在 `src/bindings/commands.ts` 追加 `sync_article` 封装
-- [ ] T031 [US2] 在 `src/stores/publish.ts` 增加 SyncJob 状态与 `syncArticle` 动作
-- [ ] T032 [US2] 实现 `src/components/publish/PublishDialog.vue`（选中文章 + 勾选平台 + 触发 + "前往平台查看草稿"）
+- [X] T024 [P] [US2] 在 `src-tauri/src/adapters/weixin.rs` 扩展 `transform_html`、`upload_image_js`、`save_draft_js`、`map_error`（FR-009/010/011/R5-R7）。注：JS 端点/选择子标 `TODO(empirical)` 待联调
+- [X] T025 [P] [US2] 在 `src-tauri/src/adapters/zhihu.rs` 扩展同上四能力
+- [X] T026 [P] [US2] 在 `src-tauri/src/adapters/juejin.rs` 扩展同上四能力
+- [X] T027 [US2] 在 `src-tauri/src/publish/sync.rs` 实现单 SyncJob 流水线：平台化 HTML → 逐图上传替换（全有或全无）→ 新建草稿；返回 `SyncJob`（FR-007/008/010a/016a）
+- [X] T028 [US2] 在 `src-tauri/src/commands/publish.rs` 实现 `sync_article`（含同步前登录态校验 → 失败 reason=`Auth`），并在 `lib.rs` 注册（FR-012/SC-007）
+- [X] T029 [P] [US2] 在 `src/services/render.ts` 用 `@md/core` 把文章渲染为带内联样式 HTML（与编辑器预览同源，SC-003）
+- [X] T030 [P] [US2] 在 `src/bindings/commands.ts` 追加 `sync_article` 封装
+- [X] T031 [US2] 在 `src/stores/publish.ts` 增加 SyncJob 状态与 `syncArticle` 动作
+- [X] T032 [US2] 实现 `src/components/publish/PublishDialog.vue`（选中文章 + 勾选平台 + 触发 + "前往平台查看草稿"）
 
 **Checkpoint**: US1+US2 构成可用 MVP——单平台一键存草稿
 
@@ -113,16 +113,16 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 ### Tests for User Story 3
 
-- [ ] T033 [P] [US3] 在 `src-tauri/src/publish/sync.rs` 内联测试（MockAdapter）：批量中单平台失败不阻断其余（FR-015）；重试新建独立草稿不覆盖（FR-016a）
-- [ ] T034 [P] [US3] 在 `tests/sync-result-list.test.ts` 测试 `SyncResultList` 依 job 状态渲染进度/重试入口
+- [X] T033 [P] [US3] 在 `src-tauri/src/publish/sync.rs` 内联测试（MockAdapter）：批量中单平台失败不阻断其余（FR-015）；重试新建独立草稿不覆盖（FR-016a）
+- [X] T034 [P] [US3] 在 `tests/sync-result-list.test.ts` 测试 `SyncResultList` 依 job 状态渲染进度/重试入口
 
 ### Implementation for User Story 3
 
-- [ ] T035 [US3] 在 `src-tauri/src/publish/sync.rs` 扩展批量编排：多平台串行执行、逐平台隔离 try、经 Tauri 事件 `publish://sync-progress` 推送进度（FR-013/014/015，research R8）
-- [ ] T036 [US3] 在 `src-tauri/src/commands/publish.rs` 扩展 `sync_article` 多平台返回 `SyncJob[]`、实现 `retry_sync`（单平台），并在 `lib.rs` 注册（FR-016/016a）
-- [ ] T037 [P] [US3] 在 `src/bindings/commands.ts` 追加 `retry_sync` 封装与 `publish://sync-progress` 事件订阅辅助
-- [ ] T038 [US3] 在 `src/stores/publish.ts` 订阅进度事件归并 job 状态、增加 `retry` 动作
-- [ ] T039 [US3] 实现 `src/components/publish/SyncResultList.vue`（逐平台进度/结果/原因/重试；UnoCSS）
+- [X] T035 [US3] 在 `src-tauri/src/publish/sync.rs` 扩展批量编排：多平台串行执行、逐平台隔离 try、经 Tauri 事件 `publish://sync-progress` 推送进度（FR-013/014/015，research R8）
+- [X] T036 [US3] 在 `src-tauri/src/commands/publish.rs` 扩展 `sync_article` 多平台返回 `SyncJob[]`、实现 `retry_sync`（单平台），并在 `lib.rs` 注册（FR-016/016a）
+- [X] T037 [P] [US3] 在 `src/bindings/commands.ts` 追加 `retry_sync` 封装与 `publish://sync-progress` 事件订阅辅助
+- [X] T038 [US3] 在 `src/stores/publish.ts` 订阅进度事件归并 job 状态、增加 `retry` 动作
+- [X] T039 [US3] 实现 `src/components/publish/SyncResultList.vue`（逐平台进度/结果/原因/重试；UnoCSS）
 
 **Checkpoint**: US1–US3 均可独立运行
 
@@ -136,15 +136,15 @@ description: "Task list for 多平台发布（浏览器同步式一键发布）"
 
 ### Tests for User Story 4
 
-- [ ] T040 [P] [US4] 在 `src-tauri/src/publish/history.rs` 内联测试：`sync_record` 写入与按文章 `syncedAt` 倒序查询（FR-018）
+- [X] T040 [P] [US4] 在 `src-tauri/src/publish/history.rs` 内联测试：`sync_record` 写入与按文章 `syncedAt` 倒序查询（FR-018）
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] 在 `src-tauri/src/publish/history.rs` 创建 `sync_record` 表（派生缓存，复用 `index` 的 rusqlite 连接）并实现写入/查询
-- [ ] T042 [US4] 在 `src-tauri/src/publish/sync.rs` 每个 SyncJob 完成后写一条 `SyncRecord`（写历史失败不改变同步成败结论）
-- [ ] T043 [US4] 在 `src-tauri/src/commands/publish.rs` 实现 `get_sync_history` 并在 `lib.rs` 注册
-- [ ] T044 [P] [US4] 在 `src/bindings/commands.ts` 追加 `get_sync_history` 封装
-- [ ] T045 [US4] 实现 `src/components/publish/SyncHistory.vue` 并在 store 增加历史查询动作
+- [X] T041 [US4] 在 `src-tauri/src/publish/history.rs` 创建 `sync_record` 表（派生缓存，复用 `index` 的 rusqlite 连接）并实现写入/查询
+- [X] T042 [US4] 每个 SyncJob 完成后写一条 `SyncRecord`（在 `commands/publish.rs::write_history`，写历史失败不改变同步成败结论）
+- [X] T043 [US4] 在 `src-tauri/src/commands/publish.rs` 实现 `get_sync_history` 并在 `lib.rs` 注册
+- [X] T044 [P] [US4] 在 `src/bindings/commands.ts` 追加 `get_sync_history` 封装
+- [ ] T045 [US4] 实现 `src/components/publish/SyncHistory.vue` 并在 store 增加历史查询动作——**未做**：store 的 `loadHistory` 已就绪，仅缺历史 UI 组件
 
 **Checkpoint**: 全部用户故事独立可用
 

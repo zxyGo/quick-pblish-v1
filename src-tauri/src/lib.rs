@@ -1,7 +1,9 @@
+mod adapters;
 mod commands;
 mod domain;
 mod error;
 mod index;
+mod publish;
 mod state;
 mod storage;
 mod watcher;
@@ -10,6 +12,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
+use commands::publish::PublishState;
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -24,6 +27,8 @@ pub fn run() {
 
             let db_path = index::default_db_path(&data_dir);
             let conn = index::open(&db_path).expect("无法打开派生缓存数据库");
+            // 同步历史表（派生缓存，FR-018）
+            publish::history::init(&conn).expect("无法初始化同步历史表");
 
             app.manage(AppState {
                 workspace: Mutex::new(None),
@@ -31,6 +36,8 @@ pub fn run() {
                 config_dir,
                 watcher: Mutex::new(None),
             });
+            // 发布功能状态：会话密文存于 app_data/sessions（FR-005）
+            app.manage(PublishState::new(data_dir.join("sessions")));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +59,16 @@ pub fn run() {
             commands::asset::import_asset,
             commands::asset::rebuild_index,
             commands::asset::get_index_status,
+            // 002-multi-platform-publish
+            commands::publish::list_platforms,
+            commands::publish::connect_platform,
+            commands::publish::confirm_connection,
+            commands::publish::get_platform_status,
+            commands::publish::disconnect_platform,
+            commands::publish::report_eval_result,
+            commands::publish::sync_article,
+            commands::publish::retry_sync,
+            commands::publish::get_sync_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

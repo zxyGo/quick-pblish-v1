@@ -71,9 +71,69 @@ export type AppErrorKind =
   | "Permission"
   | "Io"
   | "Conflict"
-  | "Invalid";
+  | "Invalid"
+  // 002-multi-platform-publish
+  | "Auth"
+  | "Network"
+  | "Platform";
 
 export interface AppError {
   kind: AppErrorKind;
   message: string;
 }
+
+// ===== 002-multi-platform-publish（contracts/platform.md、contracts/publish.md） =====
+
+export type PlatformId = "weixin" | "zhihu" | "juejin";
+
+export type PlatformStatus = "Disconnected" | "Connected" | "NeedReauth";
+
+export interface PlatformConnection {
+  platform: PlatformId;
+  status: PlatformStatus;
+  accountLabel: string | null;
+  lastCheckedAt: string | null;
+}
+
+export type SyncStatus = "Pending" | "Running" | "Success" | "Failed";
+
+export interface DraftRef {
+  platform: PlatformId;
+  draftId: string | null;
+  url: string | null;
+}
+
+export interface SyncJob {
+  id: string;
+  articlePath: string;
+  platform: PlatformId;
+  status: SyncStatus;
+  failureReason: string | null;
+  draftRef: DraftRef | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface SyncRequest {
+  articlePath: string;
+  renderedHtml: string;
+  title: string;
+  platforms: PlatformId[];
+}
+
+export interface SyncRecord {
+  id: number;
+  articlePath: string;
+  platform: PlatformId;
+  status: SyncStatus;
+  failureReason: string | null;
+  draftUrl: string | null;
+  syncedAt: string;
+}
+
+/** 平台展示名（UI 用）。 */
+export const PLATFORM_LABELS: Record<PlatformId, string> = {
+  weixin: "微信公众号",
+  zhihu: "知乎",
+  juejin: "掘金",
+};

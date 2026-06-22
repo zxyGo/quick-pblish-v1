@@ -13,6 +13,13 @@ pub enum AppError {
     Conflict(String),
     #[error("invalid: {0}")]
     Invalid(String),
+    // 002-multi-platform-publish 新增（contracts/platform.md）
+    #[error("auth: {0}")]
+    Auth(String),
+    #[error("network: {0}")]
+    Network(String),
+    #[error("platform: {0}")]
+    Platform(String),
 }
 
 impl AppError {
@@ -23,6 +30,9 @@ impl AppError {
             AppError::Io(_) => "Io",
             AppError::Conflict(_) => "Conflict",
             AppError::Invalid(_) => "Invalid",
+            AppError::Auth(_) => "Auth",
+            AppError::Network(_) => "Network",
+            AppError::Platform(_) => "Platform",
         }
     }
 }

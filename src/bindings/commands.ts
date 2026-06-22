@@ -1,5 +1,6 @@
 // 对 Tauri command 的强类型封装层。前端只通过这里调用后端，杜绝裸 invoke 字符串。
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ArticleContent,
   ArticleSummary,
@@ -7,9 +8,17 @@ import type {
   ImportedAsset,
   IndexStatus,
   ListQuery,
+  PlatformConnection,
+  PlatformId,
   SaveArticleInput,
+  SyncJob,
+  SyncRecord,
+  SyncRequest,
   Workspace,
 } from "./types";
+
+/** 同步进度事件名（contracts/publish.md）。 */
+export const SYNC_PROGRESS_EVENT = "publish://sync-progress";
 
 export const api = {
   // workspace
@@ -60,4 +69,40 @@ export const api = {
     invoke<ImportedAsset>("import_asset", { sourcePath }),
   rebuildIndex: () => invoke<IndexStatus>("rebuild_index"),
   getIndexStatus: () => invoke<IndexStatus>("get_index_status"),
+
+  // 002-multi-platform-publish：平台连接
+  listPlatforms: () => invoke<PlatformConnection[]>("list_platforms"),
+  connectPlatform: (platform: PlatformId) =>
+    invoke<PlatformConnection>("connect_platform", { platform }),
+  confirmConnection: (platform: PlatformId) =>
+    invoke<PlatformConnection>("confirm_connection", { platform }),
+  getPlatformStatus: (platform: PlatformId) =>
+    invoke<PlatformConnection>("get_platform_status", { platform }),
+  disconnectPlatform: (platform: PlatformId) =>
+    invoke<void>("disconnect_platform", { platform }),
+
+  // 002-multi-platform-publish：同步 / 重试 / 历史
+  syncArticle: (request: SyncRequest) =>
+    invoke<SyncJob[]>("sync_article", { request }),
+  retrySync: (
+    articlePath: string,
+    renderedHtml: string,
+    title: string,
+    platform: PlatformId,
+  ) =>
+    invoke<SyncJob>("retry_sync", {
+      articlePath,
+      renderedHtml,
+      title,
+      platform,
+    }),
+  getSyncHistory: (articlePath: string) =>
+    invoke<SyncRecord[]>("get_sync_history", { articlePath }),
 };
+
+/** 订阅同步进度事件（FR-014）。返回取消订阅函数。 */
+export function onSyncProgress(
+  handler: (job: SyncJob) => void,
+): Promise<UnlistenFn> {
+  return listen<SyncJob>(SYNC_PROGRESS_EVENT, (e) => handler(e.payload));
+}

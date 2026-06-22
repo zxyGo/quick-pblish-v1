@@ -28,6 +28,11 @@ hex = "0.4"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 walkdir = "2"
+# 002-multi-platform-publish：会话凭据加密落盘 + OS 安全设施密钥（FR-005 / research R3）
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+aes-gcm = "0.10"
+rand = "0.8"
+base64 = "0.22"
 
 [features]
 # this feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!

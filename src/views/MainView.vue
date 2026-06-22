@@ -7,6 +7,8 @@ import ArticleList from "@/components/article-list/ArticleList.vue";
 import FileTree from "@/components/file-tree/FileTree.vue";
 import EditorPanel from "@/components/editor/EditorPanel.vue";
 import EditorMenuBar from "@/components/editor/EditorMenuBar.vue";
+import PlatformPanel from "@/components/publish/PlatformPanel.vue";
+import PublishDialog from "@/components/publish/PublishDialog.vue";
 import { formatTime } from "@/services/format";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useArticlesStore } from "@/stores/articles";
@@ -21,6 +23,25 @@ const editor = useEditorStore();
 
 const newTitle = ref("");
 const sideTab = ref("articles");
+const publishVisible = ref(false);
+
+/** 打开“同步到平台”对话框（需先保存，确保平台收到的是最新正文）。 */
+async function openPublish() {
+  if (editor.dirty) {
+    const r = await editor.save("abort");
+    if (!r.ok && r.conflict) {
+      resolveConflict();
+      return;
+    }
+    if (!r.ok) {
+      MessagePlugin.error(r.error ?? "保存失败，无法同步");
+      return;
+    }
+    MessagePlugin.success("已保存");
+    await articles.refresh();
+  }
+  publishVisible.value = true;
+}
 const fileTree = ref<InstanceType<typeof FileTree> | null>(null);
 const editorPanel = ref<InstanceType<typeof EditorPanel> | null>(null);
 const newTitleInput = ref<{ focus?: () => void } | null>(null);
@@ -164,6 +185,9 @@ function resolveConflict() {
           <t-tab-panel value="files" label="文件">
             <FileTree ref="fileTree" @open="openArticle" />
           </t-tab-panel>
+          <t-tab-panel value="publish" label="发布">
+            <PlatformPanel />
+          </t-tab-panel>
         </t-tabs>
       </template>
 
@@ -188,7 +212,12 @@ function resolveConflict() {
             {{ formatTime(editor.open.updated) }}
           </span>
         </div>
-        <t-button v-if="editor.hasOpen" theme="primary" @click="save">保存</t-button>
+        <div v-if="editor.hasOpen" class="flex items-center gap-2 shrink-0">
+          <t-button theme="default" variant="outline" @click="openPublish">
+            同步到平台
+          </t-button>
+          <t-button theme="primary" @click="save">保存</t-button>
+        </div>
       </t-header>
 
       <div class="flex flex-col flex-1 min-h-0 bg-white">
@@ -218,5 +247,14 @@ function resolveConflict() {
         </div>
       </div>
     </t-layout>
+
+    <PublishDialog
+      v-if="editor.hasOpen && editor.open"
+      v-model:visible="publishVisible"
+      :article-path="editor.open.relativePath"
+      :title="editor.title"
+      :markdown-body="editor.body"
+    />
   </t-layout>
 </template>
+

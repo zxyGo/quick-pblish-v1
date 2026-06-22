@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "publish-webviews",
+  "description": "平台登录/同步内嵌 WebView：核心 IPC，使注入 JS 可经 window.__TAURI__.core.invoke 回传结果",
+  "windows": ["publish-*"],
+  "permissions": ["core:default"]
+}
