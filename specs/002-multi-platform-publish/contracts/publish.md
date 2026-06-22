@@ -30,6 +30,8 @@ type SyncRequest = {
   articlePath: string;
   renderedHtml: string;     // 带内联样式的 HTML
   title: string;
+  digest?: string | null;   // 摘要（选填）；留空时后端从正文文本兜底（目前仅微信消费）
+  cover?: string | null;    // 封面图引用（选填，本地相对路径/URL）；留空取正文首图兜底
   platforms: PlatformId[];  // 单个或多个（FR-007/FR-013）
 };
 
@@ -58,7 +60,7 @@ type SyncRecord = {
 - 事件名：`publish://sync-progress`，载荷为单个 `SyncJob` 的最新快照。
 - 前端 `SyncResultList` 订阅以实时更新逐平台进度（FR-014）。
 
-### `retry_sync(articlePath: string, renderedHtml: string, title: string, platform: PlatformId) -> Result<SyncJob, AppError>`
+### `retry_sync(articlePath: string, renderedHtml: string, title: string, digest: string | null, cover: string | null, platform: PlatformId) -> Result<SyncJob, AppError>`
 
 - 仅对单个失败平台重试（FR-016）。与 `sync_article` 同样逻辑，新建独立草稿（FR-016a），不覆盖历史草稿。
 

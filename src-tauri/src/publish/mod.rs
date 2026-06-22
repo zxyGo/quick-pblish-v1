@@ -82,6 +82,12 @@ pub struct SyncRequest {
     pub article_path: String,
     pub rendered_html: String,
     pub title: String,
+    /// 文章摘要（FR-009a）。留空（None / 空串）时由编排从正文文本自动兜底提取。
+    #[serde(default)]
+    pub digest: Option<String>,
+    /// 封面图片引用（本地相对路径或 URL）。留空时取正文首图兜底；目前仅微信公众号消费。
+    #[serde(default)]
+    pub cover: Option<String>,
     pub platforms: Vec<PlatformId>,
 }
 

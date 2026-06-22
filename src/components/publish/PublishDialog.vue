@@ -2,6 +2,8 @@
 // 002-multi-platform-publish US2/US3：选平台一键同步为草稿（FR-007/008/012/013）。
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { MessagePlugin } from "tdesign-vue-next";
+import { open } from "@tauri-apps/plugin-dialog";
+import { api } from "@/bindings/commands";
 import { usePublishStore } from "@/stores/publish";
 import { PLATFORM_LABELS, type PlatformId } from "@/bindings/types";
 import { toAppError } from "@/services/error";
@@ -17,6 +19,9 @@ const emit = defineEmits<{ "update:visible": [value: boolean] }>();
 
 const store = usePublishStore();
 const selected = ref<PlatformId[]>([]);
+// 摘要/封面：留空时后端自动兜底（摘要取正文文本、封面取正文首图）。目前仅微信公众号消费。
+const digest = ref("");
+const cover = ref("");
 
 const connectedPlatforms = computed(() =>
   store.platforms.filter((p) => p.status === "Connected"),
@@ -39,6 +44,22 @@ watch(
   },
 );
 
+/** 选择本地图片 → 导入工作目录 assets/ → 回填相对路径（后端 FsImageLoader 据此加载封面字节）。 */
+async function pickCover() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+  });
+  if (typeof selected !== "string") return;
+  try {
+    const asset = await api.importAsset(selected);
+    cover.value = asset.relativePath;
+    MessagePlugin.success("已选择封面");
+  } catch (e) {
+    MessagePlugin.error(toAppError(e).message);
+  }
+}
+
 async function doSync() {
   // 前端预拦截（FR-012 第一道闸）：未选已连接平台则提示
   const targets = selected.value.filter((p) => store.isConnected(p));
@@ -52,6 +73,8 @@ async function doSync() {
       props.title,
       props.markdownBody,
       targets,
+      digest.value.trim() || null,
+      cover.value.trim() || null,
     );
     const ok = jobs.filter((j) => j.status === "Success").length;
     if (ok === jobs.length) MessagePlugin.success(`同步成功（${ok}/${jobs.length}）`);
@@ -92,6 +115,24 @@ async function doSync() {
         暂无已连接平台，请先在"发布平台"面板连接。
       </div>
 
+      <div class="flex flex-col gap-1">
+        <span class="text-sm font-medium">摘要<span class="text-gray-400">（选填，留空自动取正文开头）</span></span>
+        <t-textarea
+          v-model="digest"
+          :maxlength="120"
+          :autosize="{ minRows: 2, maxRows: 4 }"
+          placeholder="一句话摘要，最多 120 字"
+        />
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <span class="text-sm font-medium">封面图<span class="text-gray-400">（选填，留空自动取正文首图）</span></span>
+        <div class="flex gap-2">
+          <t-input v-model="cover" class="flex-1" placeholder="封面图相对路径，如 assets/cover.png" />
+          <t-button theme="default" variant="outline" @click="pickCover">选择文件</t-button>
+        </div>
+      </div>
+
       <div class="flex justify-end">
         <t-button :loading="store.syncing" @click="doSync">一键同步</t-button>
       </div>
@@ -100,6 +141,8 @@ async function doSync() {
         :article-path="props.articlePath"
         :title="props.title"
         :markdown-body="props.markdownBody"
+        :digest="digest"
+        :cover="cover"
       />
     </div>
   </t-dialog>

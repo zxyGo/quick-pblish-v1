@@ -118,6 +118,10 @@ export interface SyncRequest {
   articlePath: string;
   renderedHtml: string;
   title: string;
+  /** 文章摘要；留空时后端从正文文本自动兜底提取。 */
+  digest?: string | null;
+  /** 封面图片引用（本地相对路径或 URL）；留空时取正文首图兜底。 */
+  cover?: string | null;
   platforms: PlatformId[];
 }
 

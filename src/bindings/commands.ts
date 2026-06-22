@@ -91,12 +91,16 @@ export const api = {
     articlePath: string,
     renderedHtml: string,
     title: string,
+    digest: string | null,
+    cover: string | null,
     platform: PlatformId,
   ) =>
     invoke<SyncJob>("retry_sync", {
       articlePath,
       renderedHtml,
       title,
+      digest,
+      cover,
       platform,
     }),
   getSyncHistory: (articlePath: string) =>

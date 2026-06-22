@@ -16,6 +16,17 @@ use crate::publish::webview::PlatformBridge;
 /// 新建草稿结果：`(draft_id, url)`，二者均可为空（如 UI 自动化方案拿不到 appMsgId）。
 pub type DraftOutcome = (Option<String>, Option<String>);
 
+/// 草稿元信息（摘要 + 封面），平台无关。由 [`crate::publish::sync`] 编排在调用
+/// [`PublishAdapter::save_draft`] 前构造：摘要已做兜底，封面已解析为可上传的 base64。
+/// 当前仅微信公众号适配器消费（知乎/掘金字段语义不同，暂忽略，见 plan 平台范围）。
+#[derive(Debug, Clone, Default)]
+pub struct DraftMeta {
+    /// 文章摘要（已兜底）。空串表示无摘要。
+    pub digest: String,
+    /// 封面图：`(文件名, base64)`。`None` 表示无封面（远程图/无首图/加载失败）。
+    pub cover: Option<(String, String)>,
+}
+
 /// 受支持平台标识（MVP：公众号 / 知乎 / 掘金）。序列化为小写串以匹配前端契约。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -86,11 +97,15 @@ pub trait PublishAdapter: Send + Sync {
     /// 需要「导航到编辑器页 + 多步注入」的平台（如微信走 `mp_editor_set_content` JSAPI）
     /// 应 override 本方法，自行用 `bridge` 编排导航与多次 `eval`——因为页面导航会销毁
     /// 注入脚本上下文与 hash 回传通道，无法塞进单段 JS。
+    ///
+    /// `meta` 携带摘要与封面：默认实现忽略它（知乎/掘金字段语义不同，暂不支持）；
+    /// 微信 override 会消费 `meta` 填摘要、上传并设置封面。
     fn save_draft(
         &self,
         bridge: &dyn PlatformBridge,
         title: &str,
         html: &str,
+        _meta: &DraftMeta,
     ) -> AppResult<DraftOutcome> {
         let res = bridge.eval(self.id(), &self.save_draft_js(title, html))?;
         if res.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {

@@ -73,6 +73,8 @@ export const usePublishStore = defineStore("publish", () => {
     title: string,
     markdownBody: string,
     targets: PlatformId[],
+    digest?: string | null,
+    cover?: string | null,
   ): Promise<SyncJob[]> {
     syncing.value = true;
     // 重置本批次结果
@@ -83,6 +85,8 @@ export const usePublishStore = defineStore("publish", () => {
         articlePath,
         renderedHtml,
         title,
+        digest: digest ?? null,
+        cover: cover ?? null,
         platforms: targets,
       });
       for (const job of result) {
@@ -100,9 +104,18 @@ export const usePublishStore = defineStore("publish", () => {
     title: string,
     markdownBody: string,
     platform: PlatformId,
+    digest?: string | null,
+    cover?: string | null,
   ): Promise<SyncJob> {
     const renderedHtml = await renderArticleHtml(markdownBody);
-    const job = await api.retrySync(articlePath, renderedHtml, title, platform);
+    const job = await api.retrySync(
+      articlePath,
+      renderedHtml,
+      title,
+      digest ?? null,
+      cover ?? null,
+      platform,
+    );
     jobs.value = { ...jobs.value, [job.platform]: job };
     return job;
   }

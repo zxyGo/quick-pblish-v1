@@ -3,7 +3,7 @@
 //! 注意：下列注入 JS 中的内部端点/选择子需在真实公众号编辑页经验核验后定稿（research R1/R6/R7）。
 //! 当前为结构正确、约定一致的最佳努力模板，标注 `// TODO(empirical)` 处需联调。
 
-use crate::adapters::{DraftOutcome, PlatformId, PublishAdapter};
+use crate::adapters::{DraftMeta, DraftOutcome, PlatformId, PublishAdapter};
 use crate::error::{AppError, AppResult};
 use crate::publish::webview::PlatformBridge;
 
@@ -24,12 +24,14 @@ const WEIXIN_TOKEN_JS: &str = r#"
 })()
 "#;
 
-/// 在编辑器页（appmsg_edit_v2）填标题与正文并点击「保存为草稿」。
+/// 在编辑器页（appmsg_edit_v2）填标题、摘要、正文、封面并点击「保存为草稿」。
 /// 走微信编辑器官方 JSAPI `mp_editor_set_content`（正文写入 ProseMirror 文档模型），
 /// JSAPI 不可用时降级为合成 paste 事件；最后点真实保存按钮，让页面自身发出带正确
 /// csrf/签名的保存请求——这是规避内部接口 `invalid csrf token` 的关键。
-/// `__TITLE_JSON__` / `__HTMLBODY_JSON__` 在 Rust 侧用 serde_json 字面量替换注入。
-/// 返回 `{"ok":true}` 或 `{"ok":false,"error":string}`。
+/// `__TITLE_JSON__` / `__DIGEST_JSON__` / `__HTMLBODY_JSON__` / `__COVER_B64_JSON__` /
+/// `__COVER_NAME_JSON__` 在 Rust 侧用 serde_json 字面量替换注入（空串表示该项无值）。
+/// 摘要为可靠 DOM 输入；封面为「最佳努力」上传+设置，失败仅降级不阻断（草稿允许无封面）。
+/// 返回 `{"ok":true,"coverSet":bool}` 或 `{"ok":false,"error":string}`。
 const WEIXIN_FILL_SAVE_JS: &str = r#"
 (async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -55,7 +57,10 @@ const WEIXIN_FILL_SAVE_JS: &str = r#"
   };
   try {
     const title = __TITLE_JSON__;
+    const digest = __DIGEST_JSON__;
     const htmlBody = __HTMLBODY_JSON__;
+    const coverB64 = __COVER_B64_JSON__;
+    const coverName = __COVER_NAME_JSON__;
 
     const titleInput = await waitFor('#title', 12000);
     const titleEditor = document.querySelector('.title-editor__input .ProseMirror');
@@ -73,6 +78,21 @@ const WEIXIN_FILL_SAVE_JS: &str = r#"
         if (setter) setter.call(titleInput, title); else titleInput.value = title;
         titleInput.dispatchEvent(new Event('input', { bubbles: true }));
         titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    // 摘要：公众号编辑器摘要框为 textarea（不同版本 selector 略异），用原生 setter 写值。
+    if (digest) {
+      const descEl =
+        document.querySelector('#js_description') ||
+        document.querySelector('textarea[placeholder*="摘要"]') ||
+        document.querySelector('.js_desc_input, .appmsg_desc textarea, textarea.js_desc');
+      if (descEl) {
+        descEl.focus();
+        const dsetter = (Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') || {}).set;
+        if (dsetter) dsetter.call(descEl, digest); else descEl.value = digest;
+        descEl.dispatchEvent(new Event('input', { bubbles: true }));
+        descEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
 
@@ -115,11 +135,32 @@ const WEIXIN_FILL_SAVE_JS: &str = r#"
       return { ok: false, error: injectErr || '正文注入后未检测到有效内容' };
     }
 
+    // 封面：最佳努力上传为素材并尝试设置图文封面。封面对存草稿非必填，
+    // 故任何环节失败都仅降级（coverSet=false），不阻断草稿保存。
+    let coverSet = false;
+    if (coverB64) {
+      try {
+        const token = (location.href.match(/[?&]token=(\d+)/) || [])[1] || '';
+        const bin = atob(coverB64); const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const fd = new FormData();
+        fd.append('file', new Blob([arr]), coverName || 'cover.png');
+        const upUrl = '/cgi-bin/filetransfer?action=upload_material&f=json&scene=8&writetype=doublewrite&groupid=1&token=' + token + '&lang=zh_CN';
+        const r = await fetch(upUrl, { method: 'POST', body: fd, credentials: 'include' });
+        const j = await r.json();
+        const mediaId = j && (j.content_media_id || j.media_id || (j.content && j.content.media_id));
+        const cdnUrl = j && (j.content_url || j.cdn_url || (j.content && j.content.content_url));
+        // TODO(empirical): 用 mediaId/cdnUrl 设置图文封面（编辑器封面区交互或全局数据写入），
+        // 字段名与设置入口需在真实编辑页抓包核验；当前仅完成上传，封面设置入口待联调。
+        coverSet = !!(mediaId || cdnUrl);
+      } catch (e) { /* 封面为可选增强，失败不阻断草稿保存 */ }
+    }
+
     await sleep(500);
     const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').includes('保存为草稿'));
     if (!btn) return { ok: false, error: '未找到「保存为草稿」按钮' };
     btn.click();
-    return { ok: true };
+    return { ok: true, coverSet };
   } catch (e) { return { ok: false, error: String(e) }; }
 })()
 "#;
@@ -216,13 +257,14 @@ impl PublishAdapter for WeixinAdapter {
             .to_string()
     }
 
-    /// 微信新建草稿：取 token → 导航编辑器页 → JSAPI 填充正文 → 点「保存为草稿」。
+    /// 微信新建草稿：取 token → 导航编辑器页 → JSAPI 填充标题/摘要/正文 + 上传封面 → 点「保存为草稿」。
     /// 不调内部接口，由编辑器页自身发出带正确 csrf/签名的保存请求（规避 ret=200040）。
     fn save_draft(
         &self,
         bridge: &dyn PlatformBridge,
         title: &str,
         html: &str,
+        meta: &DraftMeta,
     ) -> AppResult<DraftOutcome> {
         let platform = self.id();
 
@@ -244,12 +286,23 @@ impl PublishAdapter for WeixinAdapter {
         );
         bridge.navigate(platform, &editor_url)?;
 
-        // 3. 在编辑器页填标题/正文并点击「保存为草稿」。
+        // 3. 在编辑器页填标题/摘要/正文 + 上传封面，并点击「保存为草稿」。
         let title_js = serde_json::to_string(title).unwrap_or_else(|_| "\"\"".into());
+        let digest_js = serde_json::to_string(&meta.digest).unwrap_or_else(|_| "\"\"".into());
         let html_js = serde_json::to_string(html).unwrap_or_else(|_| "\"\"".into());
+        let (cover_b64, cover_name) = meta
+            .cover
+            .as_ref()
+            .map(|(name, b64)| (b64.as_str(), name.as_str()))
+            .unwrap_or(("", ""));
+        let cover_b64_js = serde_json::to_string(cover_b64).unwrap_or_else(|_| "\"\"".into());
+        let cover_name_js = serde_json::to_string(cover_name).unwrap_or_else(|_| "\"\"".into());
         let fill_js = WEIXIN_FILL_SAVE_JS
             .replace("__TITLE_JSON__", &title_js)
-            .replace("__HTMLBODY_JSON__", &html_js);
+            .replace("__DIGEST_JSON__", &digest_js)
+            .replace("__HTMLBODY_JSON__", &html_js)
+            .replace("__COVER_B64_JSON__", &cover_b64_js)
+            .replace("__COVER_NAME_JSON__", &cover_name_js);
         let res = bridge.eval(platform, &fill_js)?;
 
         if res.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {

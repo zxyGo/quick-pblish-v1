@@ -4,7 +4,7 @@
 use base64::Engine;
 use chrono::Utc;
 
-use crate::adapters::{PlatformId, PublishAdapter};
+use crate::adapters::{DraftMeta, PlatformId, PublishAdapter};
 use crate::error::{AppError, AppResult};
 use crate::publish::webview::PlatformBridge;
 use crate::publish::{DraftRef, SyncJob, SyncRequest, SyncStatus};
@@ -16,6 +16,8 @@ pub trait ImageLoader: Send + Sync {
 }
 
 /// 执行单个同步任务：平台化 HTML → 逐图上传替换（全有或全无）→ 新建草稿。
+/// `digest`/`cover` 为可选摘要与封面引用，留空时由 [`try_run`] 自动兜底。
+#[allow(clippy::too_many_arguments)]
 pub fn run_job(
     bridge: &dyn PlatformBridge,
     adapter: &dyn PublishAdapter,
@@ -23,12 +25,14 @@ pub fn run_job(
     article_path: &str,
     title: &str,
     rendered_html: &str,
+    digest: Option<&str>,
+    cover: Option<&str>,
 ) -> SyncJob {
     let mut job = SyncJob::pending(article_path, adapter.id());
     job.status = SyncStatus::Running;
     job.started_at = Some(Utc::now().to_rfc3339());
 
-    match try_run(bridge, adapter, loader, title, rendered_html) {
+    match try_run(bridge, adapter, loader, title, rendered_html, digest, cover) {
         Ok(draft) => {
             job.status = SyncStatus::Success;
             job.draft_ref = Some(draft);
@@ -42,12 +46,15 @@ pub fn run_job(
     job
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_run(
     bridge: &dyn PlatformBridge,
     adapter: &dyn PublishAdapter,
     loader: &dyn ImageLoader,
     title: &str,
     rendered_html: &str,
+    digest: Option<&str>,
+    cover: Option<&str>,
 ) -> AppResult<DraftRef> {
     let platform = adapter.id();
 
@@ -67,6 +74,14 @@ fn try_run(
 
     let mut html = adapter.transform_html(rendered_html);
 
+    // 封面源在「上传前」确定：用户显式指定优先，否则取正文首图。须在替换前取，
+    // 否则首图 src 已被换成平台 URL，拿不到本地字节供封面单独上传。
+    let cover_src = cover
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| extract_img_srcs(&html).into_iter().next());
+
     // 逐图上传并替换（FR-010）。任一失败 → 整篇失败（FR-010a）。
     for src in extract_img_srcs(&html) {
         let Some((filename, bytes)) = loader.load(&src)? else {
@@ -81,14 +96,53 @@ fn try_run(
         html = html.replace(&src, &url);
     }
 
+    // 摘要兜底：用户显式指定优先，否则从最终 HTML 文本提取前若干字（微信摘要上限 120）。
+    let digest = digest
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| fallback_digest(&html, 120));
+
+    // 封面字节：仅本地图片可加载（远程图 loader 返回 None → 无封面，降级处理）。
+    // 封面失败不应整篇失败（草稿允许无封面），故此处吞掉加载错误为 None。
+    let cover_bytes = cover_src.and_then(|src| match loader.load(&src) {
+        Ok(Some((filename, bytes))) => Some((
+            filename,
+            base64::engine::general_purpose::STANDARD.encode(&bytes),
+        )),
+        _ => None,
+    });
+
+    let meta = DraftMeta {
+        digest,
+        cover: cover_bytes,
+    };
+
     // 仅新建草稿，不发布（FR-008/016a）。经 adapter 编排：知乎/掘金走默认单步注入，
     // 微信 override 为「导航编辑器页 + JSAPI 填充 + 点保存」（见 weixin::save_draft）。
-    let (draft_id, url) = adapter.save_draft(bridge, title, &html)?;
+    let (draft_id, url) = adapter.save_draft(bridge, title, &html, &meta)?;
     Ok(DraftRef {
         platform,
         draft_id,
         url,
     })
+}
+
+/// 从 HTML 提取纯文本摘要兜底：剥标签、压缩空白，取前 `max` 个字符。
+fn fallback_digest(html: &str, max: usize) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(ch),
+            _ => {}
+        }
+    }
+    // 压缩连续空白为单个空格，去首尾空白。
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(max).collect()
 }
 
 /// 批量同步（FR-013/015）。串行执行、逐平台隔离；每完成一步经 `emit` 推送进度（FR-014）。
@@ -109,6 +163,8 @@ pub fn run_batch(
             &req.article_path,
             &req.title,
             &req.rendered_html,
+            req.digest.as_deref(),
+            req.cover.as_deref(),
         );
         emit(&job);
         jobs.push(job);
@@ -204,6 +260,16 @@ mod tests {
     }
 
     #[test]
+    fn fallback_digest_strips_tags_and_truncates() {
+        let html = r#"<p>Hello <b>world</b></p>  <p>第二段</p>"#;
+        assert_eq!(fallback_digest(html, 120), "Hello world 第二段");
+        // 截断按字符计（中文不被切坏）
+        assert_eq!(fallback_digest("<p>一二三四五</p>", 3), "一二三");
+        // 空白压缩 + 去首尾
+        assert_eq!(fallback_digest("<p>  a   b  </p>", 120), "a b");
+    }
+
+    #[test]
     fn job_success_no_images() {
         let bridge = MockBridge::new();
         bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
@@ -215,6 +281,8 @@ mod tests {
             "a.md",
             "标题",
             "<p>hi</p>",
+            None,
+            None,
         );
         assert_eq!(job.status, SyncStatus::Success);
         assert_eq!(job.draft_ref.unwrap().draft_id.unwrap(), "d1");
@@ -234,6 +302,8 @@ mod tests {
             "a.md",
             "标题",
             r#"<img src="assets/a.png">"#,
+            None,
+            None,
         );
         assert_eq!(job.status, SyncStatus::Failed);
         assert!(job.failure_reason.unwrap().contains("413"));
@@ -252,6 +322,8 @@ mod tests {
             "a.md",
             "标题",
             r#"<img src="assets/a.png">"#,
+            None,
+            None,
         );
         assert_eq!(job.status, SyncStatus::Success);
     }
@@ -266,6 +338,8 @@ mod tests {
             article_path: "a.md".into(),
             rendered_html: "<p>x</p>".into(),
             title: "t".into(),
+            digest: None,
+            cover: None,
             platforms: vec![PlatformId::Weixin, PlatformId::Zhihu],
         };
         let jobs = run_batch(
@@ -286,8 +360,8 @@ mod tests {
         let bridge = MockBridge::new();
         bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1"}));
-        let j1 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>");
-        let j2 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>");
+        let j1 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", None, None);
+        let j2 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>", None, None);
         assert_ne!(j1.id, j2.id);
     }
 }

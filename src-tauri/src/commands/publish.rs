@@ -224,12 +224,16 @@ pub async fn retry_sync(
     article_path: String,
     rendered_html: String,
     title: String,
+    digest: Option<String>,
+    cover: Option<String>,
     platform: PlatformId,
 ) -> AppResult<SyncJob> {
     let req = SyncRequest {
         article_path,
         rendered_html,
         title,
+        digest,
+        cover,
         platforms: vec![platform],
     };
     let mut jobs = sync_article(app, state, publish, req).await?;

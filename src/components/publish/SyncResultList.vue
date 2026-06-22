@@ -9,6 +9,8 @@ const props = defineProps<{
   articlePath: string;
   title: string;
   markdownBody: string;
+  digest?: string;
+  cover?: string;
 }>();
 
 const store = usePublishStore();
@@ -29,7 +31,14 @@ const STATUS_TEXT: Record<SyncStatus, string> = {
 };
 
 async function retry(platform: PlatformId) {
-  await store.retry(props.articlePath, props.title, props.markdownBody, platform);
+  await store.retry(
+    props.articlePath,
+    props.title,
+    props.markdownBody,
+    platform,
+    props.digest?.trim() || null,
+    props.cover?.trim() || null,
+  );
 }
 </script>
 
