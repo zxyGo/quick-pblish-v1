@@ -5,7 +5,7 @@ use base64::Engine;
 use chrono::Utc;
 
 use crate::adapters::{PlatformId, PublishAdapter};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::publish::webview::PlatformBridge;
 use crate::publish::{DraftRef, SyncJob, SyncRequest, SyncStatus};
 
@@ -50,6 +50,21 @@ fn try_run(
     rendered_html: &str,
 ) -> AppResult<DraftRef> {
     let platform = adapter.id();
+
+    // 同步前确保平台 WebView 已就绪：窗口可能在登录后被关闭、或重启后仅剩会话标记，
+    // 此处复用/重开窗口，避免注入时报「窗口未打开」（与界面"已连接"状态对齐）。
+    bridge.ensure_ready(platform, adapter.login_url())?;
+
+    // 实时校验登录态（FR-012）：重开窗口后 cookie 可能已失效，停在登录页。
+    // 提前判定可给出清晰的"请重新登录"，而非让后续草稿端点返回晦涩错误。
+    let probe = bridge.eval(platform, &adapter.probe_login_js())?;
+    if !probe.get("loggedIn").and_then(|b| b.as_bool()).unwrap_or(false) {
+        return Err(AppError::Auth(format!(
+            "{} 登录态已失效，请在登录窗口重新登录后重试",
+            platform.as_str()
+        )));
+    }
+
     let mut html = adapter.transform_html(rendered_html);
 
     // 逐图上传并替换（FR-010）。任一失败 → 整篇失败（FR-010a）。
@@ -64,10 +79,9 @@ fn try_run(
         html = replace_once(&html, &src, &url);
     }
 
-    // 仅新建草稿，不发布（FR-008/016a）。
-    let js = adapter.save_draft_js(title, &html);
-    let res = bridge.eval(platform, &js)?;
-    let (draft_id, url) = parse_save(&res).map_err(|raw| adapter.map_error(&raw))?;
+    // 仅新建草稿，不发布（FR-008/016a）。经 adapter 编排：知乎/掘金走默认单步注入，
+    // 微信 override 为「导航编辑器页 + JSAPI 填充 + 点保存」（见 weixin::save_draft）。
+    let (draft_id, url) = adapter.save_draft(bridge, title, &html)?;
     Ok(DraftRef {
         platform,
         draft_id,
@@ -113,22 +127,6 @@ fn parse_upload(v: &serde_json::Value) -> Result<String, String> {
         .get("error")
         .and_then(|e| e.as_str())
         .unwrap_or("图片上传失败")
-        .to_string())
-}
-
-fn parse_save(v: &serde_json::Value) -> Result<(Option<String>, Option<String>), String> {
-    if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
-        let draft_id = v
-            .get("draftId")
-            .and_then(|d| d.as_str())
-            .map(|s| s.to_string());
-        let url = v.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
-        return Ok((draft_id, url));
-    }
-    Err(v
-        .get("error")
-        .and_then(|e| e.as_str())
-        .unwrap_or("保存草稿失败")
         .to_string())
 }
 
@@ -210,6 +208,7 @@ mod tests {
     #[test]
     fn job_success_no_images() {
         let bridge = MockBridge::new();
+        bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1","url":"u1"}));
         let job = run_job(
             &bridge,
@@ -227,6 +226,7 @@ mod tests {
     fn job_image_upload_fail_marks_whole_failed() {
         // 上传返回 ok:false → 整篇 Failed，不进入保存（FR-010a/SC-005）
         let bridge = MockBridge::new();
+        bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "UPLOAD", json!({"ok":false,"error":"413 too large"}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1"}));
         let job = run_job(
@@ -244,6 +244,7 @@ mod tests {
     #[test]
     fn job_image_success_replaces_src_then_saves() {
         let bridge = MockBridge::new();
+        bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "UPLOAD", json!({"ok":true,"url":"https://mp/img.png"}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d2"}));
         let job = run_job(
@@ -259,8 +260,9 @@ mod tests {
 
     #[test]
     fn batch_isolates_failures() {
-        // 微信成功、知乎失败（未配置 SAVE 响应）→ 互不影响（FR-015）
+        // 微信成功、知乎失败（未配置响应）→ 互不影响（FR-015）
         let bridge = MockBridge::new();
+        bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1"}));
         let req = SyncRequest {
             article_path: "a.md".into(),
@@ -284,6 +286,7 @@ mod tests {
     fn retry_creates_new_job_each_time() {
         // 重复执行各自独立、均新建（FR-016a）：两次 job id 不同
         let bridge = MockBridge::new();
+        bridge.set(PlatformId::Weixin, "PROBE", json!({"loggedIn":true}));
         bridge.set(PlatformId::Weixin, "SAVE", json!({"ok":true,"draftId":"d1"}));
         let j1 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>");
         let j2 = run_job(&bridge, weixin_mock().as_ref(), &NoImages, "a.md", "t", "<p/>");

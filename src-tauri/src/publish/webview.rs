@@ -73,6 +73,21 @@ pub trait PlatformBridge: Send + Sync {
     /// 打开/聚焦该平台登录 WebView（FR-001）。
     fn open_login(&self, platform: PlatformId, login_url: &str) -> AppResult<()>;
 
+    /// 确保该平台 WebView 已打开且文档加载完成，可用于注入 JS（同步前调用）。
+    ///
+    /// 窗口已存在则直接复用（不重新弹窗打扰用户）；不存在则用 `login_url` 打开并
+    /// 阻塞等待页面 ready。修复「会话标记存在（界面显示已连接）但 WebView 窗口已关闭
+    /// → `eval` 报『窗口未打开』」的状态错位：连接态由加密会话标记承载、可跨重启恢复，
+    /// 而注入 JS 需要一个活的窗口，二者寿命不一致，同步前须在此对齐。
+    fn ensure_ready(&self, platform: PlatformId, login_url: &str) -> AppResult<()>;
+
+    /// 让该平台 WebView 导航到指定 URL，并阻塞等待文档加载完成。
+    ///
+    /// UI 自动化方案（如微信走编辑器页 + JSAPI 注入）需要先把 WebView 跳到目标页，
+    /// 再在新页面上下文注入脚本。注意：导航会销毁旧页面的脚本上下文与 `location.hash`
+    /// 回传通道，故必须由 Rust 侧分步编排——导航与后续 `eval` 分开调用，不可塞进同一段注入。
+    fn navigate(&self, platform: PlatformId, url: &str) -> AppResult<()>;
+
     /// 在该平台 WebView 上下文执行 JS 并取回 JSON 结果（约定见各 adapter 注释）。
     fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value>;
 
@@ -154,6 +169,71 @@ mod tauri_impl {
                 .build()
                 .map_err(|e| AppError::Platform(format!("无法创建登录窗口: {e}")))?;
             Ok(())
+        }
+
+        fn ensure_ready(&self, platform: PlatformId, login_url: &str) -> AppResult<()> {
+            // 窗口已存在 → 复用（之前已加载且承载登录态），不重新弹窗打扰用户。
+            if self.app.get_webview_window(&Self::label(platform)).is_some() {
+                return Ok(());
+            }
+            // 窗口不存在（关闭过 / 重启后会话标记仍在）→ 重开并等文档 ready。
+            // WebView2 会复用持久化 cookie，登录态通常随之恢复；是否真正登录由调用方
+            // 随后的 probe_login_js 校验，本方法只负责把窗口与页面准备到可注入状态。
+            self.open_login(platform, login_url)?;
+
+            // 等待文档可执行 JS（readyState 到 interactive/complete）。刚建窗时 WebView2
+            // 尚在异步创建/导航，eval 注入可能短暂失败，故吞掉中间错误轮询重试。
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                if let Ok(v) = self.eval(platform, "document.readyState") {
+                    if matches!(v.as_str(), Some("interactive") | Some("complete")) {
+                        return Ok(());
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(AppError::Network(format!(
+                        "{} 登录页加载超时（30s）",
+                        platform.as_str()
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
+        }
+
+        fn navigate(&self, platform: PlatformId, url: &str) -> AppResult<()> {
+            let webview = self
+                .app
+                .get_webview_window(&Self::label(platform))
+                .ok_or_else(|| {
+                    AppError::Auth(format!("{} 未连接（窗口未打开），请先登录", platform.as_str()))
+                })?;
+            let parsed = url
+                .parse()
+                .map_err(|e| AppError::Invalid(format!("导航 URL 非法: {e}")))?;
+            webview
+                .navigate(parsed)
+                .map_err(|e| AppError::Platform(format!("WebView 导航失败: {e}")))?;
+
+            // 导航是异步的：先给它时间真正切走旧页，避免立刻在旧页面上误判 readyState=complete。
+            std::thread::sleep(Duration::from_millis(800));
+
+            // 再等新文档 ready（注入脚本可执行）。注意：仅保证 document 加载，
+            // SPA 内的具体编辑器节点由后续注入脚本自行 waitFor。
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                if let Ok(v) = self.eval(platform, "document.readyState") {
+                    if matches!(v.as_str(), Some("interactive") | Some("complete")) {
+                        return Ok(());
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(AppError::Network(format!(
+                        "{} 页面导航加载超时（30s）",
+                        platform.as_str()
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            }
         }
 
         fn eval(&self, platform: PlatformId, js: &str) -> AppResult<serde_json::Value> {
@@ -241,6 +321,8 @@ pub mod mock {
         /// key: "<platform>:<js前缀>"，如 "weixin:UPLOAD"；value: 返回 JSON
         pub responses: Mutex<HashMap<String, serde_json::Value>>,
         pub opened: Mutex<Vec<PlatformId>>,
+        /// 记录 navigate 调用的目标 URL，供编排单测断言导航发生。
+        pub navigated: Mutex<Vec<(PlatformId, String)>>,
     }
 
     impl MockBridge {
@@ -248,6 +330,7 @@ pub mod mock {
             MockBridge {
                 responses: Mutex::new(HashMap::new()),
                 opened: Mutex::new(Vec::new()),
+                navigated: Mutex::new(Vec::new()),
             }
         }
 
@@ -262,6 +345,18 @@ pub mod mock {
     impl PlatformBridge for MockBridge {
         fn open_login(&self, platform: PlatformId, _login_url: &str) -> AppResult<()> {
             self.opened.lock().unwrap().push(platform);
+            Ok(())
+        }
+
+        fn ensure_ready(&self, _platform: PlatformId, _login_url: &str) -> AppResult<()> {
+            Ok(())
+        }
+
+        fn navigate(&self, platform: PlatformId, url: &str) -> AppResult<()> {
+            self.navigated
+                .lock()
+                .unwrap()
+                .push((platform, url.to_string()));
             Ok(())
         }
 

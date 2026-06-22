@@ -10,7 +10,11 @@ mod zhihu;
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::AppError;
+use crate::error::{AppError, AppResult};
+use crate::publish::webview::PlatformBridge;
+
+/// 新建草稿结果：`(draft_id, url)`，二者均可为空（如 UI 自动化方案拿不到 appMsgId）。
+pub type DraftOutcome = (Option<String>, Option<String>);
 
 /// 受支持平台标识（MVP：公众号 / 知乎 / 掘金）。序列化为小写串以匹配前端契约。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,7 +76,38 @@ pub trait PublishAdapter: Send + Sync {
 
     /// 复用会话"新建草稿"的注入 JS（FR-008/016a / research R7）。
     /// 约定返回：`{"ok":true,"draftId":string|null,"url":string|null}` 或 `{"ok":false,"error":string}`。
+    /// 仅供默认 [`save_draft`](PublishAdapter::save_draft) 单步调用；走多步 UI 自动化的平台
+    /// （如微信）会 override `save_draft`，此方法对其不再被调用。
     fn save_draft_js(&self, title: &str, html: &str) -> String;
+
+    /// 新建草稿的完整编排（FR-008/016a）。默认实现为「单步注入 `save_draft_js` 并解析回传」，
+    /// 适用于可直接调内部接口的平台（知乎/掘金）。
+    ///
+    /// 需要「导航到编辑器页 + 多步注入」的平台（如微信走 `mp_editor_set_content` JSAPI）
+    /// 应 override 本方法，自行用 `bridge` 编排导航与多次 `eval`——因为页面导航会销毁
+    /// 注入脚本上下文与 hash 回传通道，无法塞进单段 JS。
+    fn save_draft(
+        &self,
+        bridge: &dyn PlatformBridge,
+        title: &str,
+        html: &str,
+    ) -> AppResult<DraftOutcome> {
+        let res = bridge.eval(self.id(), &self.save_draft_js(title, html))?;
+        if res.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+            let draft_id = res
+                .get("draftId")
+                .and_then(|d| d.as_str())
+                .map(|s| s.to_string());
+            let url = res.get("url").and_then(|u| u.as_str()).map(|s| s.to_string());
+            Ok((draft_id, url))
+        } else {
+            let raw = res
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("保存草稿失败");
+            Err(self.map_error(raw))
+        }
+    }
 
     /// 平台原始错误串 → 统一 [`AppError`]。
     fn map_error(&self, raw: &str) -> AppError {
